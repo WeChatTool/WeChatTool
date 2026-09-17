@@ -142,6 +142,12 @@ python3 -m wechattool prepare --output "$HOME/Applications/WeChatTool-WeChat.app
 open "$HOME/Applications/WeChatTool-WeChat.app"
 ```
 
+开发时也可以运行 `make prepare`，将副本创建在 `build/prepared.noindex/WeChatTool-WeChat.app`。`.noindex` 文件夹可避免此测试副本出现在 Spotlight 搜索中。请使用以下命令直接打开：
+
+```sh
+open build/prepared.noindex/WeChatTool-WeChat.app
+```
+
 如果官方微信安装在其他位置，请在以下两个命令中指定相同的源路径：
 
 ```sh

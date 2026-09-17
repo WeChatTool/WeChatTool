@@ -17,7 +17,7 @@ analyze:
 	$(PYTHON) -m wechattool analyze
 
 prepare: build
-	$(PYTHON) -m wechattool prepare --output build/WeChatTool-WeChat.app
+	$(PYTHON) -m wechattool prepare --output build/prepared.noindex/WeChatTool-WeChat.app
 
 installer:
 	$(PYTHON) scripts/build-installer.py

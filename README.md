@@ -145,6 +145,12 @@ Open the copy and follow the verification steps above:
 open "$HOME/Applications/WeChatTool-WeChat.app"
 ```
 
+For development, `make prepare` creates `build/prepared.noindex/WeChatTool-WeChat.app`. The `.noindex` folder keeps this test copy out of Spotlight search. Open it directly with:
+
+```sh
+open build/prepared.noindex/WeChatTool-WeChat.app
+```
+
 If the official app is installed elsewhere, pass the same source path to both commands:
 
 ```sh
