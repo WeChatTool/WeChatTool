@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 from test_macho import make_thin
 from wechattool.analyze import CompatibilityError, analyze, confined_path, profiles, scan_image
-from wechattool.prepare import prepare
+from wechattool.prepare import isolate_helpers, prepare
+from wechattool.instances import create_identity, isolated_file_provider_entitlements
 
 
 ARM = bytes.fromhex("080c40b949e284521f01096be0179f1ac0035fd6")
@@ -73,6 +74,7 @@ class BundleTests(unittest.TestCase):
         self.info = {
             "CFBundleIdentifier": "com.tencent.xinWeChat", "CFBundleExecutable": "WeChat",
             "CFBundleShortVersionString": "99.0", "CFBundleVersion": "future-build",
+            "TeamIdentifier": "5A4RE8SF68.",
         }
         (self.app / "Contents/Info.plist").write_bytes(plistlib.dumps(self.info))
         (self.app / "Contents/MacOS/WeChat").write_bytes(make_thin(text=b"\xc0\x03\x5f\xd6"))
@@ -179,6 +181,80 @@ class BundleTests(unittest.TestCase):
                 prepare(self.app, destination, plugin)
             sign.assert_not_called()
         self.assertFalse(destination.exists())
+
+    def test_changed_identity_aborts_before_signing(self):
+        destination = self.root / "Prepared.app"
+        plugin = self.root / "plugin.dylib"
+        plugin.write_bytes(make_thin(text=b"\xc0\x03\x5f\xd6"))
+
+        def changed_identity(*arguments):
+            shutil.copytree(arguments[1], arguments[2], symlinks=True)
+            info = {**self.info, "TeamIdentifier": "DIFFERENT0."}
+            (Path(arguments[2]) / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+
+        with patch("wechattool.prepare.run", side_effect=changed_identity), patch("wechattool.prepare.sign_copy") as sign:
+            with self.assertRaisesRegex(CompatibilityError, "identity changed"):
+                prepare(self.app, destination, plugin)
+            sign.assert_not_called()
+        self.assertFalse(destination.exists())
+
+    def test_official_system_extensions_are_excluded_from_staged_copy(self):
+        extension = self.app / "Contents/PlugIns/WeChatMacShare.appex/Contents"
+        extension.mkdir(parents=True)
+        (extension / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "official.share"}))
+        staged = self.root / "Staged.app"
+        shutil.copytree(self.app, staged)
+        self.assertEqual(isolate_helpers(staged, create_identity(self.info), self.root), ["WeChatMacShare.appex"])
+        self.assertTrue(extension.is_dir())
+        self.assertFalse((staged / "Contents/PlugIns/WeChatMacShare.appex").exists())
+
+    def test_shared_helper_storage_permissions_are_rejected(self):
+        helper = self.app / "Contents/XPCServices/Unsafe.xpc/Contents"
+        helper.mkdir(parents=True)
+        (helper / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "official.helper"}))
+        grants = {"com.apple.security.application-groups": ["5A4RE8SF68.com.tencent.xinWeChat"]}
+        result = subprocess.CompletedProcess([], 0, stdout=plistlib.dumps(grants))
+        with patch("wechattool.prepare.run", return_value=result):
+            with self.assertRaisesRegex(CompatibilityError, "independent storage permissions"):
+                isolate_helpers(self.app, create_identity(self.info), self.root)
+
+    def test_file_provider_keeps_only_its_new_host_group(self):
+        extension = self.app / "Contents/PlugIns/WeChatFileProviderExtension.appex"
+        (extension / "Contents").mkdir(parents=True)
+        identity = create_identity(self.info)
+        metadata = {
+            "CFBundleIdentifier": "com.tencent.xinWeChat.WeChatFileProviderExtension",
+            "TeamIdentifier": "5A4RE8SF68.",
+            "NSExtension": {
+                "NSExtensionPointIdentifier": "com.apple.fileprovider-nonui",
+                "NSExtensionFileProviderDocumentGroup": "5A4RE8SF68.com.tencent.xinWeChat",
+            },
+        }
+        info = extension / "Contents/Info.plist"
+        info.write_bytes(plistlib.dumps(metadata))
+        source_grants = {"com.apple.security.app-sandbox": True,
+                         "com.apple.security.application-groups": ["5A4RE8SF68.com.tencent.xinWeChat"]}
+        expected = isolated_file_provider_entitlements(source_grants, identity)
+        calls = []
+
+        def codesign(*arguments):
+            calls.append(arguments)
+            grants = source_grants if len(calls) == 1 else expected
+            return subprocess.CompletedProcess(arguments, 0, stdout=plistlib.dumps(grants))
+
+        with patch("wechattool.prepare.run", side_effect=codesign):
+            self.assertEqual(isolate_helpers(self.app, identity, self.root), [])
+        result = plistlib.loads(info.read_bytes())
+        self.assertEqual(result["CFBundleIdentifier"], identity.bundle_id + ".WeChatFileProviderExtension")
+        self.assertEqual(result["NSExtension"]["NSExtensionFileProviderDocumentGroup"], identity.app_group)
+        self.assertEqual(plistlib.loads((self.root / "file-provider-entitlements.plist").read_bytes()), expected)
+        self.assertTrue(any("--sign" in call for call in calls))
+        self.assertTrue(any("--verify" in call for call in calls))
+
+    def test_unknown_system_extension_refused(self):
+        (self.app / "Contents/PlugIns/Future.appex").mkdir(parents=True)
+        with self.assertRaisesRegex(CompatibilityError, "Unsupported system extension"):
+            isolate_helpers(self.app, create_identity(self.info), self.root)
 
 
 if __name__ == "__main__":

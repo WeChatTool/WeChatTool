@@ -2,6 +2,7 @@
 // Original implementation. Local notices use WeChat's own message services.
 #import <Foundation/Foundation.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <objc/runtime.h>
 #import "RecallRuntime.h"
 #include "NoticeProfiles.inc"
 #include <libkern/OSCacheControl.h>
@@ -17,6 +18,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 namespace {
 
@@ -42,6 +44,52 @@ struct Runtime {
 
 // Intentionally process-lifetime state: dyld retains the callback forever.
 static Runtime *gRuntime = nullptr;
+
+// The official Share extension broadcasts these channels without identifying
+// a destination installation. Isolated copies must not receive its payloads.
+static bool OfficialShareChannel(NSString *name) {
+    return [name isEqualToString:@"wechat_share_to_wechat_channel"] ||
+           [name isEqualToString:@"WeChatMacShare_Notification"];
+}
+
+using Observer4 = void (*)(id, SEL, id, SEL, NSString *, NSString *);
+using Observer5 = void (*)(id, SEL, id, SEL, NSString *, NSString *, NSNotificationSuspensionBehavior);
+static Observer4 gAddObserver4 = nullptr;
+static Observer5 gAddObserver5 = nullptr;
+
+static void IsolatedObserver4(id center, SEL command, id observer, SEL selector,
+                              NSString *name, NSString *object) {
+    if (!OfficialShareChannel(name))
+        gAddObserver4(center, command, observer, selector, name, object);
+}
+
+static void IsolatedObserver5(id center, SEL command, id observer, SEL selector,
+                              NSString *name, NSString *object, NSNotificationSuspensionBehavior behavior) {
+    if (!OfficialShareChannel(name))
+        gAddObserver5(center, command, observer, selector, name, object, behavior);
+}
+
+static bool IsolateShareNotifications() {
+    Class type = NSDistributedNotificationCenter.class;
+    SEL four = @selector(addObserver:selector:name:object:);
+    SEL five = @selector(addObserver:selector:name:object:suspensionBehavior:);
+    Method method4 = class_getInstanceMethod(type, four);
+    Method method5 = class_getInstanceMethod(type, five);
+    if (!method4 || !method5 || method_getNumberOfArguments(method4) != 6 ||
+        method_getNumberOfArguments(method5) != 7) return false;
+    char return4[8] = {}, return5[8] = {};
+    method_getReturnType(method4, return4, sizeof(return4));
+    method_getReturnType(method5, return5, sizeof(return5));
+    if (strcmp(return4, "v") || strcmp(return5, "v")) return false;
+    gAddObserver4 = reinterpret_cast<Observer4>(method_getImplementation(method4));
+    gAddObserver5 = reinterpret_cast<Observer5>(method_getImplementation(method5));
+    if (!gAddObserver4 || !gAddObserver5) return false;
+    // Replace on this subclass, never an inherited NSNotificationCenter method.
+    class_replaceMethod(type, four, reinterpret_cast<IMP>(IsolatedObserver4), method_getTypeEncoding(method4));
+    class_replaceMethod(type, five, reinterpret_cast<IMP>(IsolatedObserver5), method_getTypeEncoding(method5));
+    return class_getMethodImplementation(type, four) == reinterpret_cast<IMP>(IsolatedObserver4) &&
+           class_getMethodImplementation(type, five) == reinterpret_cast<IMP>(IsolatedObserver5);
+}
 
 static void Log(os_log_t logger, NSString *status, NSString *identifier) {
     os_log_with_type(logger, OS_LOG_TYPE_DEFAULT,
@@ -126,6 +174,35 @@ static bool HexString(id value, NSUInteger length) {
         if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
     }
     return true;
+}
+
+// Separate installations use OS-assigned containers, independent of this plugin.
+// Their explicit identity also binds the plugin plan to that one installation.
+static bool BundleIdentity(NSBundle *bundle, NSString **instanceID) {
+    *instanceID = nil;
+    NSString *identifier = bundle.bundleIdentifier;
+    if (!String(identifier)) return false;
+    if ([identifier isEqualToString:@"com.tencent.xinWeChat"]) return true;
+    NSString *prefix = @"local.wechattool.wechat.";
+    if (![identifier hasPrefix:prefix]) return false;
+    NSString *instance = [identifier substringFromIndex:prefix.length];
+    id declaredInstance = [bundle objectForInfoDictionaryKey:@"WeChatToolInstanceID"];
+    id source = [bundle objectForInfoDictionaryKey:@"WeChatToolSourceBundleIdentifier"];
+    if (!HexString(instance, 32) || !HexString(declaredInstance, 32) ||
+        ![instance isEqualToString:declaredInstance] || !String(source) ||
+        ![source isEqualToString:@"com.tencent.xinWeChat"]) return false;
+    *instanceID = instance;
+    return true;
+}
+
+static bool IsolatedPlanIdentity(NSDictionary *plan, NSString *instanceID) {
+    if (!instanceID) return true;
+    return String(plan[@"source_bundle_id"]) &&
+        [plan[@"source_bundle_id"] isEqualToString:@"com.tencent.xinWeChat"] &&
+        HexString(plan[@"instance_id"], 32) &&
+        [plan[@"instance_id"] isEqualToString:instanceID] &&
+        String(plan[@"data_isolation"]) &&
+        [plan[@"data_isolation"] isEqualToString:@"per-installation"];
 }
 
 static NSData *Hex(NSString *hex) {
@@ -473,9 +550,14 @@ __attribute__((constructor)) static void Start() {
         os_log_t logger = os_log_create("local.wechattool", "runtime");
         NSBundle *bundle = NSBundle.mainBundle;
         NSString *root = Canonical(bundle.bundlePath);
-        if (!root || ![bundle.bundleIdentifier isEqualToString:@"com.tencent.xinWeChat"] ||
+        NSString *instanceID = nil;
+        if (!root || !BundleIdentity(bundle, &instanceID) ||
             ![Canonical(bundle.executablePath) isEqualToString:
                 [root stringByAppendingPathComponent:@"Contents/MacOS/WeChat"]]) return;
+        if (instanceID && !IsolateShareNotifications()) {
+            Log(logger, @"isolation-unavailable", @"share-routing");
+            _exit(78);
+        }
         NSString *resources = [root stringByAppendingPathComponent:@"Contents/Resources/WeChatTool"];
         const char *disabled = getenv("WECHATTOOL_DISABLE");
         if ((disabled && strcmp(disabled, "1") == 0) ||
@@ -499,6 +581,7 @@ __attribute__((constructor)) static void Start() {
         if (!Integer(plan[@"schema_version"], &schema) || schema != 1 ||
             !String(plan[@"bundle_id"]) || !String(plan[@"version"], 64) || !String(plan[@"build"], 64) ||
             ![plan[@"bundle_id"] isEqualToString:bundle.bundleIdentifier] ||
+            !IsolatedPlanIdentity(plan, instanceID) ||
             ![plan[@"version"] isEqualToString:[bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]] ||
             ![plan[@"build"] isEqualToString:[bundle objectForInfoDictionaryKey:@"CFBundleVersion"]] ||
             (plan[@"enabled"] && !Boolean(plan[@"enabled"]))) {

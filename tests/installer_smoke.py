@@ -122,6 +122,7 @@ def main() -> None:
             "CFBundleExecutable": "WeChat", "CFBundleIdentifier": "com.tencent.xinWeChat",
             "CFBundleVersion": "test-build", "CFBundleShortVersionString": "test-version",
             "CFBundlePackageType": "APPL",
+            "TeamIdentifier": "5A4RE8SF68.",
         }
         (contents / "Info.plist").write_bytes(plistlib.dumps(metadata))
         build_library(ROOT / "tests/native_fixture.S", library, args.arch)
@@ -134,6 +135,15 @@ def main() -> None:
         }))
         sign_fixture(source, entitlements)
         run(launcher, "baseline", "1", cwd=unrelated, env=environment)
+        # Never execute the original-ID fixture with a sandbox: only generated
+        # identities may create fresh synthetic containers during this test.
+        entitlements.write_bytes(plistlib.dumps({
+            "com.apple.security.app-sandbox": True,
+            "com.apple.application-identifier": "5A4RE8SF68.com.tencent.xinWeChat",
+            "com.apple.security.application-groups": ["5A4RE8SF68.com.tencent.xinWeChat"],
+            "com.apple.security.cs.disable-library-validation": True,
+        }))
+        sign_fixture(source, entitlements)
         original = snapshot(source)
         passed("disposable original predicate returns true")
 
@@ -154,7 +164,17 @@ def main() -> None:
         installed_plugin = prepared / "Contents/Resources/WeChatTool/WeChatTool.dylib"
         require(installed_plugin.is_file(), "Plugin was not installed in the copied fixture")
         plan = json.loads((installed_plugin.parent / "plan.json").read_text(encoding="utf-8"))
-        require(plan == report, "Installed plan differs from independently analyzed plan")
+        require(all(plan[key] == value for key, value in report.items() if key != "bundle_id"),
+                "Installed hook plan differs from independently analyzed plan")
+        require(result["data_isolation"] == plan["data_isolation"] == "per-installation", "Missing storage isolation")
+        require(plan["bundle_id"] == result["bundle_id"] == "local.wechattool.wechat." + result["instance_id"],
+                "Copied identity does not match its plan")
+        require(plan["source_bundle_id"] == report["bundle_id"], "Wrong source identity")
+        copied_info = plistlib.loads((prepared / "Contents/Info.plist").read_bytes())
+        require(copied_info["CFBundleIdentifier"] == result["bundle_id"], "Copy retained original bundle ID")
+        signed = plistlib.loads(run("/usr/bin/codesign", "-d", "--entitlements", ":-", prepared).stdout.encode())
+        require(signed["com.apple.security.app-sandbox"] is True, "Copy lost its sandbox")
+        require(signed["com.apple.security.application-groups"] == [result["app_group"]], "Copy retained shared group grants")
         run("/usr/bin/codesign", "--verify", "--deep", "--strict", prepared)
         run("/usr/bin/codesign", "--verify", "--strict", installed_plugin)
         require(snapshot(source) == original, "Preparation modified the source app")

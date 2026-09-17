@@ -76,15 +76,14 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     private var window: NSWindow!
     private var source: URL?
     private var destination: URL?
+    private var destinationBundleID: String?
     private var compatible = false
     private var busy = false
-    private var observers: [NSObjectProtocol] = []
     private var contentStack: NSStackView!
 
     private let sourceField = NSTextField(labelWithString: "")
     private let statusTitle = NSTextField(labelWithString: "")
     private let statusMessage = NSTextField(wrappingLabelWithString: "")
-    private let runningNote = NSTextField(wrappingLabelWithString: "")
     private let details = NSTextView()
     private let detailsScroll = NSScrollView()
     private let spinner = NSProgressIndicator()
@@ -97,12 +96,6 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     func applicationDidFinishLaunching(_ notification: Notification) {
         makeMenu()
         makeWindow()
-        let notifications = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
-            observers.append(notifications.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.updateControls()
-            })
-        }
         let installed = URL(fileURLWithPath: "/Applications/WeChat.app", isDirectory: true)
         if FileManager.default.fileExists(atPath: installed.path) {
             selectSource(installed)
@@ -179,8 +172,8 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         sourceRow.spacing = 12
 
         let explanation = NSTextField(wrappingLabelWithString: Copy.text(
-            "Your original application stays unchanged. The copy may use the same chat storage. Back up important chats and quit WeChat before creating or opening the copy.",
-            "原应用保持不变。副本可能使用相同的聊天数据。请备份重要聊天，并在创建或打开副本前退出微信。"))
+            "Each copy has its own login, chats, and settings. Create a separate copy for each account and use them together. Your original app stays unchanged; its chat history is not copied.",
+            "每个副本拥有独立的登录状态、聊天记录和设置。为每个账号创建一个副本，即可同时使用。原应用保持不变，原有聊天记录不会复制到新副本。"))
         explanation.font = .systemFont(ofSize: 12)
         explanation.textColor = .secondaryLabelColor
 
@@ -223,8 +216,6 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         actions.orientation = .horizontal
         actions.spacing = 8
 
-        runningNote.font = .systemFont(ofSize: 12)
-        runningNote.textColor = .secondaryLabelColor
         configure(revealButton, Copy.text("Show in Finder", "在访达中显示"), #selector(revealCopy))
         configure(openButton, Copy.text("Open WeChat", "打开微信"), #selector(openCopy))
         let finishedActions = NSStackView(views: [revealButton, openButton])
@@ -233,7 +224,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
 
         let stack = NSStackView(views: [title, subtitle, sourceLabel, sourceRow, explanation,
                                       separator, checkLabel, statusRow, statusMessage,
-                                      detailsScroll, actions, runningNote, finishedActions])
+                                      detailsScroll, actions, finishedActions])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -248,7 +239,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 26)
         ])
-        for view in [subtitle, sourceRow, explanation, separator, statusMessage, detailsScroll, runningNote] {
+        for view in [subtitle, sourceRow, explanation, separator, statusMessage, detailsScroll] {
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
     }
@@ -267,22 +258,14 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         detailsScroll.isHidden = detail.isEmpty
     }
 
-    private var weChatIsRunning: Bool {
-        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.tencent.xinWeChat" && !$0.isTerminated }
-    }
-
     private func updateControls() {
         chooseButton.isEnabled = !busy
         checkButton.isEnabled = !busy && source != nil
-        createButton.isEnabled = !busy && compatible && !weChatIsRunning
-        openButton.isHidden = destination == nil
+        createButton.isEnabled = !busy && compatible
+        openButton.isHidden = destination == nil || destinationBundleID == nil
         revealButton.isHidden = destination == nil
-        openButton.isEnabled = !busy && !weChatIsRunning
+        openButton.isEnabled = !busy && destination != nil && destinationBundleID != nil
         revealButton.isEnabled = !busy
-        runningNote.stringValue = weChatIsRunning
-            ? Copy.text("WeChat is running. Quit it normally to enable creating or opening a copy.", "微信正在运行。请正常退出微信，之后即可创建或打开副本。")
-            : ""
-        runningNote.isHidden = runningNote.stringValue.isEmpty
         if busy { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
         // Expand for diagnostics or longer translations while keeping controls visible.
         window.contentView?.layoutSubtreeIfNeeded()
@@ -302,6 +285,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         sourceField.stringValue = source!.path
         sourceField.toolTip = source!.path
         destination = nil
+        destinationBundleID = nil
         compatible = false
         checkCompatibility()
     }
@@ -338,13 +322,8 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
                    report["status"] as? String == "structurally-compatible",
                    let version = report["version"] as? String, let build = report["build"] as? String {
                     self.compatible = true
-                    let notices = report["recall_notices"] as? [String: Any]
-                    let hasNotices = notices?["status"] as? String == "available"
-                    let features = hasNotices
-                        ? Copy.text("Recall notices are available. Verify preservation and notices with a new test message after opening your copy.", "此版本支持撤回提醒。打开副本后，请用一条新测试消息验证防撤回和提醒功能。")
-                        : Copy.text("Message preservation is available; recall notices are unavailable for this version. Verify with a new test message after opening your copy.", "此版本可启用防撤回，暂不支持撤回提醒。打开副本后，请用一条新测试消息验证。")
                     self.setStatus(Copy.text("WeChat \(version) (\(build)) passed the check", "微信 \(version)（\(build)）已通过检查"),
-                                   features)
+                                   Copy.text("You can create an independent copy with recall protection. After signing in, recall a new test message to verify it stays visible.", "可以创建带有防撤回功能的独立副本。登录后，请撤回一条新测试消息，确认它仍然可见。"))
                 } else {
                     self.setStatus(Copy.text("This WeChat app could not pass the check", "此微信应用未通过检查"),
                                    Copy.text("Choose a clean official installation. If this version is unsupported, continue using the original app.", "请选择未经修改的官方微信。如果此版本不受支持，请继续使用原应用。"), detail: response.details)
@@ -357,11 +336,11 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     @objc private func createCopy() {
-        guard !busy, compatible, let source, requireWeChatClosed() else { return }
+        guard !busy, compatible, let source, window.attachedSheet == nil else { return }
         let panel = NSSavePanel()
         panel.title = Copy.text("Save your WeChat copy", "保存微信副本")
         panel.prompt = Copy.text("Create Copy", "创建副本")
-        panel.message = Copy.text("Choose a new name. Existing apps are never replaced.", "请选择一个新名称。现有应用不会被替换。")
+        panel.message = Copy.text("Give this account’s copy a new name. Existing apps are never replaced.", "请为此账号的副本取一个新名称。现有应用不会被替换。")
         panel.allowedContentTypes = [.applicationBundle]
         panel.canCreateDirectories = true
         panel.treatsFilePackagesAsDirectories = false
@@ -375,7 +354,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         }
         panel.directoryURL = applications
         panel.beginSheetModal(for: window) { [weak self] response in
-            guard let self, response == .OK, let output = panel.url, self.requireWeChatClosed() else { return }
+            guard let self, !self.busy, response == .OK, let output = panel.url else { return }
             guard !FileManager.default.fileExists(atPath: output.path) else {
                 self.alert(Copy.text("Choose a new name", "请选择新名称"),
                            Copy.text("An item already exists at that location. Choose a different name or folder; the installer will not replace it.", "该位置已有同名项目。请选择其他名称或文件夹，安装器不会替换现有项目。"))
@@ -388,8 +367,9 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     private func prepare(source: URL, output: URL) {
         busy = true
         destination = nil
+        destinationBundleID = nil
         setStatus(Copy.text("Creating your WeChat copy…", "正在创建微信副本…"),
-                  Copy.text("Copying the application and checking its signature. This may take a few minutes. Keep WeChat closed until this finishes.", "正在复制应用并检查签名，可能需要几分钟。请在完成前保持微信关闭。"))
+                  Copy.text("Preparing a separate installation and checking its signature. This may take a few minutes. You can keep using your other WeChat installations.", "正在准备独立安装并检查签名，可能需要几分钟。你可以继续使用其他微信应用。"))
         updateControls()
         Backend.run(["prepare", "--app", source.path, "--output", output.path, "--plugin", Backend.plugin.path]) { [weak self] result in
             guard let self else { return }
@@ -399,13 +379,18 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
                 if response.exitCode == 0, let report = response.json,
                    report["status"] as? String == "prepared-and-signature-verified",
                    let path = report["destination"] as? String,
-                   URL(fileURLWithPath: path).resolvingSymlinksInPath() == output.resolvingSymlinksInPath() {
+                   URL(fileURLWithPath: path).resolvingSymlinksInPath() == output.resolvingSymlinksInPath(),
+                   let bundleID = Self.isolatedBundleID(in: report) {
                     self.destination = URL(fileURLWithPath: path)
+                    self.destinationBundleID = bundleID
                     self.setStatus(Copy.text("Your WeChat copy is ready", "微信副本已准备好"),
-                                   Copy.text("Open the copy and log in normally. Send and recall a new test message to confirm it stays visible. Use this copy when you want recall protection.", "打开副本并正常登录。发送一条新测试消息后撤回，确认它仍然可见。需要防撤回时，请使用此副本。"))
+                                   Copy.text("Open this copy and sign in to the account you want to use here. Its chats and settings start separately; your original history is not imported. Create another copy for another account.", "打开此副本，登录要在这里使用的账号。聊天记录和设置独立保存，不会自动导入原有记录。需要使用其他账号时，请再创建一个副本。"))
                     self.sourceField.toolTip = source.path
                     self.revealButton.toolTip = output.path
                     self.openButton.toolTip = output.path
+                } else if response.exitCode == 0 {
+                    self.setStatus(Copy.text("Could not verify the new installation", "无法验证新安装"),
+                                   Copy.text("The installer could not confirm this copy’s separate data storage. Check the details below and create a fresh copy.", "安装器无法确认此副本的数据是否独立保存。请查看以下详情，并重新创建副本。"), detail: response.details)
                 } else {
                     self.setStatus(Copy.text("Could not create the copy", "无法创建副本"),
                                    Copy.text("The original app was not changed. Check the details below, then try again with a new destination.", "原应用未被更改。请查看以下详情，然后选择新的保存位置重试。"), detail: response.details)
@@ -423,12 +408,14 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
                   detail: error.localizedDescription)
     }
 
-    private func requireWeChatClosed() -> Bool {
-        guard weChatIsRunning else { return true }
-        alert(Copy.text("Quit WeChat first", "请先退出微信"),
-              Copy.text("Quit WeChat normally from its menu, then try again. Do not run the original app and a prepared copy together.", "请通过微信菜单正常退出微信后重试。不要同时运行原应用和已准备的副本。"))
-        updateControls()
-        return false
+    private static func isolatedBundleID(in report: [String: Any]) -> String? {
+        guard report["data_isolation"] as? String == "per-installation",
+              let instanceID = report["instance_id"] as? String,
+              instanceID.utf8.count == 32,
+              instanceID.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+              let bundleID = report["bundle_id"] as? String,
+              bundleID == "local.wechattool.wechat." + instanceID else { return nil }
+        return bundleID
     }
 
     @objc private func revealCopy() {
@@ -437,14 +424,31 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     @objc private func openCopy() {
-        guard !busy, let destination, requireWeChatClosed() else { return }
-        // LaunchServices registers the app asynchronously. Block a second
-        // click immediately, before a running-application notification arrives.
+        guard !busy, let destination, let destinationBundleID else { return }
+        guard Bundle(url: destination)?.bundleIdentifier == destinationBundleID else {
+            alert(Copy.text("Could not verify the WeChat copy", "无法验证微信副本"),
+                  Copy.text("The app at this location has changed. Create a fresh copy with the installer before opening it.", "此位置的应用已发生变化。请使用安装器重新创建副本后再打开。"))
+            return
+        }
+        // Keep one process per installation, including while LaunchServices
+        // finishes registering a newly created app.
         busy = true
         updateControls()
+        if let running = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == destinationBundleID && !$0.isTerminated
+        }) {
+            let activated = running.activate(options: [.activateAllWindows])
+            busy = false
+            updateControls()
+            if !activated {
+                alert(Copy.text("This WeChat copy is already running", "此微信副本已在运行"),
+                      Copy.text("Open its window from the Dock or Finder.", "请从程序坞或访达打开其窗口。"))
+            }
+            return
+        }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        configuration.createsNewApplicationInstance = true
+        configuration.createsNewApplicationInstance = false
         NSWorkspace.shared.openApplication(at: destination, configuration: configuration) { [weak self] _, error in
             DispatchQueue.main.async {
                 guard let self else { return }

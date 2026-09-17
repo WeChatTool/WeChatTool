@@ -6,7 +6,7 @@ WeChat exposes no stable anti-recall plugin interface. This project uses a narro
 
 The analyzer reads the app's Mach-O files and checks:
 
-1. The main bundle is `com.tencent.xinWeChat` and its executable is `WeChat`.
+1. The source is the official `com.tencent.xinWeChat` bundle and its executable is `WeChat`. Prepared installations are not accepted as source apps.
 2. Each launcher architecture has exactly one supported predicate across the candidate core images.
 3. The complete predicate matches a known instruction sequence in executable `__TEXT,__text`, at an `LC_FUNCTION_STARTS` boundary.
 4. The image has a UUID. The output records that UUID, architecture, address, exact bytes, bundle version/build, and SHA-256 of the source image.
@@ -69,13 +69,21 @@ The existing implementation does not include the older Objective-C `MessageServi
 
 Preparation never replaces the source installation or an existing output path. The copied launcher gains an `LC_LOAD_DYLIB` dependency on the local plugin; a generated plan lives under `Contents/Resources/WeChatTool/`. The source core image is not patched on disk. The native plugin changes only its own process memory after validation.
 
-The copy retains the original bundle ID and may access the same chat storage as the original app. This does not guarantee that the re-signed app can reopen existing databases or resolve security-scoped bookmarks. Never run both copies concurrently. Removing the copy does not require deleting account data.
+Each preparation allocates a random 32-character lowercase hexadecimal instance ID and assigns `local.wechattool.wechat.<instance ID>` as the copy’s bundle identifier. The metadata and generated plan record matching identities. Runtime validation checks those identities before activating in a prepared app. Each installation has its own sandbox, preferences, and application group; it starts with independent login and chat data. Preparation does not read or copy an account’s existing files.
+
+The inspected native data-path code derives Documents, Application Support, and Caches from the main bundle’s container identity. Its application group derives from `TeamIdentifier + CFBundleIdentifier`. Preparation updates the corresponding signing entitlements and removes inherited access to the original application group. Native process and account file locks remain in place, scoped under each installation’s app-data directory. No process-count or account-lock bypass is installed. Distinct installations can run together; the GUI activates an already-running destination installation instead of requesting another instance of it.
+
+The Share Sheet extension is omitted because its routing is tied to the official app. In isolated copies, the runtime also suppresses registration for the official Share Sheet notification channels, including when `WECHATTOOL_DISABLE=1` disables recall protection. FileProvider is retained with a distinct extension identity and the new host’s document group and permissions. Inherited helpers keep the host’s sandbox; helpers with unhandled independent storage grants are refused. Prepared copies do not register the official app’s URL schemes.
+
+Synthetic sandbox tests on Apple Silicon and Intel through Rosetta verify independent private and group storage, persisted preferences, inherited helper behavior, concurrent processes, and duplicate-process lock exclusion. Real WeChat copies have passed preparation and signature checks. Simultaneous login to real accounts has not been exercised; fixture results and static inspection do not establish complete live behavior.
+
+Copying a prepared bundle in Finder preserves its identity and therefore its data. It is not a new installation. Use preparation separately for each account. Removing an app does not require deleting any account data.
 
 Keep an independent chat backup before testing a modified client. The plugin does not manage chat backups or restore missing history.
 
-Ad-hoc signing changes the app's identity. Preparation retains original entitlements and adds `com.apple.security.cs.disable-library-validation` and `com.apple.security.cs.allow-unsigned-executable-memory`. It does not request a debugger entitlement or change SIP. Preserving entitlement keys cannot preserve Tencent's signing identity, so operating-system permission checks, launch/login behavior, or other app features may still differ.
+Ad-hoc signing changes the app’s identity. Preparation preserves the sandbox and supported capabilities, replaces application and shared-storage identities, and adds `com.apple.security.cs.disable-library-validation` and `com.apple.security.cs.allow-unsigned-executable-memory`. It does not request a debugger entitlement or change SIP. Tencent’s publisher signature is not preserved, so operating-system permission checks, launch/login behavior, or other app features may still differ.
 
-Automatic updating is not disabled. An update can replace the launcher, plugin resources, or core image, so a prepared copy is not an update-management solution. After updates, use the clean official app as the source for a new analysis and preparation. Do not copy an old plan into a new build.
+Preparation disables automatic update checks through the copied app’s updater metadata. Update the official app, then use it as the source for a new analysis and preparation. Every preparation creates a new identity and starts with independent data; the installer does not offer an in-place upgrade or data migration. Keep a previous installation while its local history is still needed. Do not copy an old plan into a new build or edit an identity to reuse its data.
 
 ## Diagnostics and disabling
 
@@ -95,6 +103,6 @@ The preferred startup disable switch is:
 WECHATTOOL_DISABLE=1 /path/to/copied.app/Contents/MacOS/WeChat
 ```
 
-It must be set for the copied executable's process. Setting it in a shell and using `open` may not propagate it through LaunchServices, so the command above launches the executable directly. Quit any running WeChat first.
+It must be set for the copied executable's process. Setting it in a shell and using `open` may not propagate it through LaunchServices, so the command above launches the executable directly. Quit that installation first; other independently prepared installations can remain open.
 
 The alternative resource marker is an empty file at `Contents/Resources/WeChatTool/disabled` inside the copied app, and is also startup-only. Adding it after preparation modifies the signed resource seal, so use the environment switch for normal troubleshooting. Rebuild and prepare a fresh copy to restore a clean, signed output after editing its resources.

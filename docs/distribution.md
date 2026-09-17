@@ -11,6 +11,10 @@ for Apple Silicon and Intel Macs running macOS 14 or later. It is ad-hoc signed
 and has not been notarized by Apple. Installation steps are in the
 [English README](../README.md) and [简体中文说明](../README.zh-CN.md).
 
+Independent installations are part of the current **0.1.1** source build and
+are not included in the published v0.1.0 installer. Version 0.1.1 has not yet
+been published; the commands below build it locally.
+
 ## Build a local installer
 
 Use macOS with Xcode Command Line Tools and Python 3.10 or newer. Run from the
@@ -82,8 +86,22 @@ directory outside the source tree with a system-only executable search path,
 including preparing and signing a copy, activation, refusal cases, and keeping
 the source unchanged. It never launches the installed WeChat or reads chats.
 
+Verify storage separation with the synthetic sandbox integration test:
+
+```sh
+python3 tests/instance_isolation.py --arch arm64
+python3 tests/instance_isolation.py --arch x86_64
+```
+
+These checks prepare two installations with different identities, exercise their
+private and group containers, preferences, inherited helpers, and file locks,
+and confirm that relaunching preserves each installation’s own fixture data.
+They use newly generated test identities and do not read existing WeChat data.
+The Intel run on Apple Silicon requires Rosetta. Check that each prepared copy
+omits the Share Sheet extension and gives FileProvider only its own host group.
+
 Also open the installer to check English and Chinese layout, file selection,
-compatibility results, error messages, and the normal quit/open workflow. Test a
+compatibility results, error messages, and creating/opening a copy while a different installation remains running. Test a
 downloaded archive on a clean Mac without developer tools. A successful static
 compatibility check does not replace a real message-recall test for a WeChat
 release.
@@ -105,7 +123,7 @@ Configure your notarization credentials in Keychain separately. Submit the ZIP,
 wait for acceptance, and staple the ticket to the app:
 
 ```sh
-xcrun notarytool submit "dist/arm64/WeChatTool-Installer-0.1.0-arm64.zip" \
+xcrun notarytool submit "dist/arm64/WeChatTool-Installer-0.1.1-arm64.zip" \
   --keychain-profile "WeChatTool-notary" --wait
 xcrun stapler staple "dist/arm64/WeChatTool-Installer.app"
 xcrun stapler validate "dist/arm64/WeChatTool-Installer.app"
@@ -117,9 +135,9 @@ ZIP containing the stapled app and generate a checksum for **that** archive:
 
 ```sh
 ditto -c -k --sequesterRsrc --keepParent "dist/arm64/WeChatTool-Installer.app" \
-  "dist/arm64/WeChatTool-Installer-0.1.0-arm64-notarized.zip"
-shasum -a 256 "dist/arm64/WeChatTool-Installer-0.1.0-arm64-notarized.zip" \
-  > "dist/arm64/WeChatTool-Installer-0.1.0-arm64-notarized.zip.sha256"
+  "dist/arm64/WeChatTool-Installer-0.1.1-arm64-notarized.zip"
+shasum -a 256 "dist/arm64/WeChatTool-Installer-0.1.1-arm64-notarized.zip" \
+  > "dist/arm64/WeChatTool-Installer-0.1.1-arm64-notarized.zip.sha256"
 ```
 
 The embedded build metadata records the original build and says

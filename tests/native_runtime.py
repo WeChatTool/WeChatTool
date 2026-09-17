@@ -85,8 +85,10 @@ def main() -> None:
         count = 0
 
         def check(name: str, value: dict, wanted: int = 1, mode: str = "normal", env: dict | None = None,
-                  strict_signature: bool = True) -> None:
+                  strict_signature: bool = True, bundle_metadata: dict | None = None) -> None:
             nonlocal count
+            (contents / "Info.plist").write_bytes(plistlib.dumps(
+                metadata if bundle_metadata is None else bundle_metadata))
             (tool_dir / "plan.json").write_text(json.dumps(value), encoding="utf-8")
             run("codesign", "--force", "--sign", "-", "--options", "runtime", "--entitlements", entitlements, bundle)
             if strict_signature:
@@ -136,6 +138,65 @@ def main() -> None:
         changed = copy.deepcopy(plan)
         changed["hooks"].append(copy.deepcopy(changed["hooks"][0]))
         check("reject duplicate hook", changed)
+
+        instance = "0123456789abcdef0123456789abcdef"
+        isolated_metadata = {**metadata,
+            "CFBundleIdentifier": "local.wechattool.wechat." + instance,
+            "WeChatToolInstanceID": instance,
+            "WeChatToolSourceBundleIdentifier": "com.tencent.xinWeChat",
+        }
+        isolated_plan = {**copy.deepcopy(plan),
+            "bundle_id": isolated_metadata["CFBundleIdentifier"],
+            "instance_id": instance, "source_bundle_id": "com.tencent.xinWeChat",
+            "data_isolation": "per-installation",
+        }
+        check("isolated installation patches future image", isolated_plan, wanted=0,
+              bundle_metadata=isolated_metadata)
+        check("isolated copy ignores official share channels", isolated_plan, wanted=0,
+              mode="sharing-filter", bundle_metadata=isolated_metadata)
+        check("share isolation remains when recall protection disabled", isolated_plan,
+              mode="sharing-filter", bundle_metadata=isolated_metadata,
+              env={**os.environ, "WECHATTOOL_DISABLE": "1"})
+        check("isolated plugin environment disable", isolated_plan, bundle_metadata=isolated_metadata,
+              env={**os.environ, "WECHATTOOL_DISABLE": "1"})
+        check("isolated installation refuses legacy plan", plan, bundle_metadata=isolated_metadata)
+        for field, bad in [
+            ("instance_id", "f" * 32), ("instance_id", True),
+            ("source_bundle_id", "other"), ("source_bundle_id", ["com.tencent.xinWeChat"]),
+            ("data_isolation", "shared"), ("data_isolation", True),
+        ]:
+            changed = copy.deepcopy(isolated_plan)
+            changed[field] = bad
+            check(f"isolated plan rejects {field}={bad}", changed, bundle_metadata=isolated_metadata)
+        for field in ("instance_id", "source_bundle_id", "data_isolation"):
+            changed = copy.deepcopy(isolated_plan)
+            del changed[field]
+            check(f"isolated plan requires {field}", changed, bundle_metadata=isolated_metadata)
+        for field, bad in [
+            ("WeChatToolInstanceID", "f" * 32), ("WeChatToolInstanceID", True),
+            ("WeChatToolSourceBundleIdentifier", "other"),
+            ("WeChatToolSourceBundleIdentifier", ["com.tencent.xinWeChat"]),
+        ]:
+            changed_metadata = {**isolated_metadata, field: bad}
+            check(f"isolated bundle rejects {field}={bad}", isolated_plan, bundle_metadata=changed_metadata)
+        for field in ("WeChatToolInstanceID", "WeChatToolSourceBundleIdentifier"):
+            changed_metadata = dict(isolated_metadata)
+            del changed_metadata[field]
+            check(f"isolated bundle requires {field}", isolated_plan, bundle_metadata=changed_metadata)
+        for malformed in (instance.upper(), instance[:-1], instance + "0", "g" * 32):
+            # Keep metadata and plan mutually consistent: rejection must come
+            # from the generated identity's shape, not an accidental mismatch.
+            identifier = "local.wechattool.wechat." + malformed
+            changed_metadata = {**isolated_metadata, "CFBundleIdentifier": identifier,
+                                "WeChatToolInstanceID": malformed}
+            changed = {**isolated_plan, "bundle_id": identifier, "instance_id": malformed}
+            check(f"isolated bundle rejects malformed suffix {malformed}", changed,
+                  bundle_metadata=changed_metadata)
+        unknown_identifier = "local.unrelated.wechat." + instance
+        check("reject unrelated bundle with matching plan", {**isolated_plan, "bundle_id": unknown_identifier},
+              bundle_metadata={**isolated_metadata, "CFBundleIdentifier": unknown_identifier})
+        check("legacy identity remains accepted after isolated fixtures", plan, wanted=0)
+
         helper = executable.with_name("Helper")
         executable.rename(helper)
         executable = helper
