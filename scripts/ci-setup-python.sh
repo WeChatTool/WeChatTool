@@ -56,6 +56,17 @@ download_verified() {
     fi
 }
 
+verify_universal() {
+    local architectures architecture
+    architectures="$(/usr/bin/lipo -archs "$1")"
+    for architecture in arm64 x86_64; do
+        if [[ " $architectures " != *" $architecture "* ]]; then
+            printf 'Missing %s architecture in %s\n' "$architecture" "$1" >&2
+            return 1
+        fi
+    done
+}
+
 package="$task_temp/python-$python_version-macos11.pkg"
 source_archive="$task_temp/Python-$python_version.tar.xz"
 download_verified "https://www.python.org/ftp/python/$python_version/python-$python_version-macos11.pkg" \
@@ -66,8 +77,8 @@ download_verified "https://www.python.org/ftp/python/$python_version/Python-$pyt
 # Both upstream artifacts are pinned and verified before any system mutation.
 # sudo -n also prevents an unexpected interactive password prompt in CI.
 /usr/bin/sudo -n /usr/sbin/installer -pkg "$package" -target /
-/usr/bin/lipo "$python_binary" -verify_arch arm64 x86_64
-/usr/bin/lipo "$python_root/Python" -verify_arch arm64 x86_64
+verify_universal "$python_binary"
+verify_universal "$python_root/Python"
 "$python_binary" -I - "$python_root" <<'PY'
 from pathlib import Path
 import sys
@@ -95,7 +106,7 @@ created_licenses=1
     -r "$task_root/installer/requirements-build.txt"
 "$venv_dir/bin/python" -I -c \
     'import importlib.metadata; assert importlib.metadata.version("pyinstaller") == "6.22.0"'
-/usr/bin/lipo "$venv_dir/bin/python" -verify_arch arm64 x86_64
+verify_universal "$venv_dir/bin/python"
 
 "$venv_dir/bin/python" -I - "$source_archive" "$license_dir" "$task_root/installer/Python-Runtime-Packaging-NOTICE.txt" <<'PY'
 from pathlib import Path
