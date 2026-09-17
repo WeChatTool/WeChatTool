@@ -34,7 +34,7 @@ Click **Check Compatibility**. This only reads the application; it does not modi
 
 ### 3. Create your app copy
 
-Click **Create WeChat Copy** and choose a name and location for this account’s app. The default is `Applications/WeChatTool-WeChat.app` inside your home folder. Other WeChat installations can stay open.
+Click **Create WeChat Copy** and choose a name and location for this account’s app. The save dialog suggests `WeChatTool-WeChat.app` in the `Applications` folder inside your home folder. You can change this filename before creating the copy. Other WeChat installations can stay open.
 
 Choose a new name if that app already exists. The installer does not overwrite an existing app or folder. Wait for preparation to finish; it creates and locally signs the copy.
 
@@ -48,9 +48,16 @@ For a first test, have another account send a new text message, then recall it. 
 
 Use this copied app whenever you want the plugin enabled. Opening the original **WeChat.app** in Applications runs the official installation.
 
-## Use another account
+## Run multiple WeChat instances
 
-Repeat **Create WeChat Copy** from the same clean official app and choose a different name, such as **WeChat-Work.app** or **WeChat-Personal.app**. Sign in to a different account in each installation. They can run alongside one another and the official app, with separate chat data, settings, and login state.
+**Different installations do not share data.** Each installation keeps its own chat history, login state, and settings, separate from other copies and the official app.
+
+To run multiple instances at the same time, install multiple copies and **run one instance per copy**:
+
+1. Use **Create WeChat Copy** once for each account, always selecting the same clean official app as the source. Give each copy a different name, such as **WeChat02.app** and **WeChat03.app**.
+2. Open each copy and sign in to a different account. Leave the copies open to use those accounts concurrently. The official app can remain open too.
+
+Opening a copy that is already running brings its existing window forward.
 
 **Create each installation with the installer.** Duplicating a prepared app in Finder keeps its identity and data; it does not create an independent installation. Copies made with an older installer are not converted automatically.
 
