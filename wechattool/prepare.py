@@ -24,6 +24,28 @@ def run(*arguments: str) -> subprocess.CompletedProcess:
     return subprocess.run(arguments, check=True, capture_output=True)
 
 
+def set_localized_display_name(app: Path, display_name: str) -> None:
+    """Use the chosen app name in every main-bundle language, preserving translations."""
+    app = app.resolve(strict=True)
+    if (not isinstance(display_name, str) or not display_name.strip() or "/" in display_name
+            or any(ord(character) < 32 or ord(character) == 127 for character in display_name)):
+        raise CompatibilityError("Invalid application display name.")
+    resources = confined_path(app, "Contents/Resources")
+    replacements = []
+    for path in sorted(resources.glob("*.lproj/InfoPlist.strings")):
+        path = confined_path(app, str(path.relative_to(app)))
+        # Official .strings files may be UTF-16 OpenStep plists; plistlib alone
+        # cannot read that format. plutil reads without modifying the input.
+        converted = run("/usr/bin/plutil", "-convert", "xml1", "-o", "-", str(path))
+        strings = plistlib.loads(converted.stdout)
+        if not isinstance(strings, dict):
+            raise CompatibilityError("Localized application metadata must contain a dictionary.")
+        strings.update(CFBundleName=display_name, CFBundleDisplayName=display_name)
+        replacements.append((path, plistlib.dumps(strings, fmt=plistlib.FMT_BINARY)))
+    for path, content in replacements:
+        path.write_bytes(content)
+
+
 def sign_copy(app: Path, plugin: Path, scratch: Path, identity: InstanceIdentity) -> None:
     # Extract the original sandbox/device/file permissions instead of silently
     # deleting the sandbox or enabling debugger attachment.
@@ -154,6 +176,7 @@ def prepare(source: Path, destination: Path, plugin: Path, *, image_relative: st
         plan.update(identity.to_dict())
         plan["data_isolation"] = "per-installation"
         info_path.write_bytes(plistlib.dumps(isolated_info(source_info, identity, destination.stem)))
+        set_localized_display_name(staged, destination.stem)
         (resources / "plan.json").write_text(json.dumps(plan, indent=2) + "\n")
         launcher.write_bytes(inject_dylib(original_launcher, INSTALL_NAME))
         sign_copy(staged, copied_plugin, scratch, identity)

@@ -120,11 +120,31 @@ def main() -> None:
         library = contents / "Resources/wechat.dylib"
         metadata = {
             "CFBundleExecutable": "WeChat", "CFBundleIdentifier": "com.tencent.xinWeChat",
+            "CFBundleName": "WeChat", "CFBundleDisplayName": "WeChat",
+            "CFBundleDevelopmentRegion": "en",
             "CFBundleVersion": "test-build", "CFBundleShortVersionString": "test-version",
             "CFBundlePackageType": "APPL",
             "TeamIdentifier": "5A4RE8SF68.",
         }
         (contents / "Info.plist").write_bytes(plistlib.dumps(metadata))
+        localized_metadata = {
+            "en": {"CFBundleName": "WeChat", "CFBundleDisplayName": "WeChat",
+                   "NSCameraUsageDescription": 'Allow "WeChat" to use your camera.'},
+            "zh-Hans": {"CFBundleName": "微信", "CFBundleDisplayName": "微信",
+                        "NSCameraUsageDescription": "请允许“微信”使用摄像头。"},
+            "zh-Hant": {"CFBundleName": "WeChat", "CFBundleDisplayName": "WeChat",
+                        "NSCameraUsageDescription": "允許「WeChat」使用攝影機。"},
+        }
+        for language, values in localized_metadata.items():
+            localization = contents / "Resources" / (language + ".lproj")
+            localization.mkdir()
+            # Match the actual app's UTF-16 OpenStep strings format, which
+            # plistlib alone cannot read. Keep unrelated localized permissions.
+            text = "/* Synthetic localized app metadata. */\n" + "".join(
+                f"{json.dumps(key)} = {json.dumps(value, ensure_ascii=False)};\n"
+                for key, value in values.items()
+            )
+            (localization / "InfoPlist.strings").write_bytes(text.encode("utf-16"))
         build_library(ROOT / "tests/native_fixture.S", library, args.arch)
         run("/usr/bin/xcrun", "clang", "-arch", args.arch, "-mmacosx-version-min=11.0",
             "-fobjc-arc", "-Wl,-headerpad,0x100", "-framework", "Foundation",
@@ -179,6 +199,60 @@ def main() -> None:
         run("/usr/bin/codesign", "--verify", "--strict", installed_plugin)
         require(snapshot(source) == original, "Preparation modified the source app")
         passed("standalone preparation produces a signed copy and preserves original hashes")
+
+        require(copied_info["CFBundleName"] == copied_info["CFBundleDisplayName"] == prepared.stem,
+                "Base bundle metadata does not preserve the chosen installation name")
+        for language, values in localized_metadata.items():
+            strings = prepared / "Contents/Resources" / (language + ".lproj") / "InfoPlist.strings"
+            actual = plistlib.loads(run("/usr/bin/plutil", "-convert", "xml1", "-o", "-", strings).stdout.encode())
+            expected = {**values, "CFBundleName": prepared.stem, "CFBundleDisplayName": prepared.stem}
+            require(actual == expected, f"Wrong localized names or changed permissions for {language}: {actual}")
+
+        # Query Finder's display-name API and Bundle's localized lookup in a
+        # fresh process for each language. This reads metadata only; it never
+        # loads the fixture app's executable or registers/launches an app.
+        name_source = workspace / "localized-name-probe.m"
+        name_source.write_text(r'''#import <Foundation/Foundation.h>
+int main(int argc, const char *argv[]) {
+    @autoreleasepool {
+        if (argc < 2) return 2;
+        NSString *path = [NSString stringWithUTF8String:argv[1]];
+        NSBundle *bundle = [NSBundle bundleWithPath:path];
+        if (!bundle) return 3;
+        NSDictionary *result = @{
+            @"displayName": [[NSFileManager defaultManager] displayNameAtPath:path],
+            @"bundleName": [bundle objectForInfoDictionaryKey:@"CFBundleName"] ?: @"",
+            @"bundleDisplayName": [bundle objectForInfoDictionaryKey:@"CFBundleDisplayName"] ?: @"",
+            @"permission": [bundle objectForInfoDictionaryKey:@"NSCameraUsageDescription"] ?: @"",
+            @"language": bundle.preferredLocalizations.firstObject ?: @"",
+        };
+        NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:NULL];
+        return fwrite(json.bytes, 1, json.length, stdout) == json.length ? 0 : 4;
+    }
+}
+''', encoding="utf-8")
+        name_probe = workspace / "localized-name-probe"
+        name_probe_info = workspace / "localized-name-probe.plist"
+        name_probe_info.write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": "local.wechattool.metadata-probe",
+            # A command-line main bundle otherwise constrains another bundle's
+            # resource lookup to its own default language (English).
+            "CFBundleAllowMixedLocalizations": True,
+        }))
+        run("/usr/bin/xcrun", "clang", "-arch", args.arch, "-mmacosx-version-min=11.0",
+            "-fobjc-arc", "-framework", "Foundation",
+            "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist",
+            "-Xlinker", name_probe_info, name_source, "-o", name_probe)
+        for language, values in localized_metadata.items():
+            names = json.loads(run(name_probe, prepared, "-AppleLanguages", f"({language})",
+                                   cwd=unrelated, env=environment).stdout)
+            require(names["language"] == language, f"Name probe did not select {language}: {names}")
+            require(all(names[key] == prepared.stem for key in ("displayName", "bundleName", "bundleDisplayName")),
+                    f"macOS name lookup lost the chosen installation name for {language}: {names}")
+            require(names["permission"] == values["NSCameraUsageDescription"],
+                    f"Localized permission changed for {language}: {names}")
+        require(snapshot(source) == original, "Localized-name checks changed the source fixture")
+        passed("chosen installation name survives English and both Chinese localized macOS lookups")
 
         prepared_launcher = prepared / "Contents/MacOS/WeChat"
         dependencies = run("/usr/bin/xcrun", "otool", "-L", prepared_launcher).stdout
