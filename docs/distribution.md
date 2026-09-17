@@ -5,6 +5,12 @@ need Python, Xcode, Terminal, or a compiler. The installer contains a native Mac
 interface, the prebuilt plugin, and a private Python runtime running the same
 backend as the command-line tool. It does not include WeChat or any user data.
 
+The [v0.1.0 release](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.0)
+provides a [Universal installer ZIP](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.0/WeChatTool-Installer-0.1.0-universal2.zip)
+for Apple Silicon and Intel Macs running macOS 14 or later. It is ad-hoc signed
+and has not been notarized by Apple. Installation steps are in the
+[English README](../README.md) and [简体中文说明](../README.zh-CN.md).
+
 ## Build a local installer
 
 Use macOS with Xcode Command Line Tools and Python 3.10 or newer. Run from the
@@ -19,7 +25,7 @@ build/installer-venv/bin/python scripts/build-installer.py
 The build uses the current Python architecture by default. Outputs are under
 `dist/arm64/` or `dist/x86_64/`:
 
-- `WeChatTool Installer.app`: double-clickable installer.
+- `WeChatTool-Installer.app`: double-clickable installer.
 - `WeChatTool-Installer-<version>-<architecture>.zip`: archive to download.
 - A SHA-256 checksum and `build-info.json` recording the runtime and minimum OS.
 
@@ -27,8 +33,10 @@ Outputs are ignored by Git. Move previous output elsewhere before rebuilding;
 the build command refuses to overwrite it. Build dependencies stay in the local
 virtual environment. End users never install them.
 
-The default build is ad-hoc signed for local testing. It is **not a notarized
-public release**. Opening it on a different Mac can trigger Gatekeeper.
+The default build is ad-hoc signed and **not notarized**. Gatekeeper may block
+it after download. For a trusted download, users can attempt to open the app,
+then choose **System Settings → Privacy & Security → Open Anyway**, as described
+in [Apple’s instructions](https://support.apple.com/en-sg/guide/mac-help/mh40616/mac).
 
 ## Processor and macOS support
 
@@ -59,14 +67,14 @@ This never lowers a requirement imposed by the bundled runtime.
 ## Verify the package
 
 ```sh
-python3 tests/installer_smoke.py "dist/arm64/WeChatTool Installer.app"
+python3 tests/installer_smoke.py "dist/arm64/WeChatTool-Installer.app"
 ```
 
 Use the corresponding path for Intel or Universal builds. For an Intel test on
 an Apple Silicon Mac with Rosetta:
 
 ```sh
-python3 tests/installer_smoke.py "dist/universal2/WeChatTool Installer.app" --arch x86_64
+python3 tests/installer_smoke.py "dist/universal2/WeChatTool-Installer.app" --arch x86_64
 ```
 
 The test uses disposable synthetic apps. It checks the frozen backend from a
@@ -99,16 +107,16 @@ wait for acceptance, and staple the ticket to the app:
 ```sh
 xcrun notarytool submit "dist/arm64/WeChatTool-Installer-0.1.0-arm64.zip" \
   --keychain-profile "WeChatTool-notary" --wait
-xcrun stapler staple "dist/arm64/WeChatTool Installer.app"
-xcrun stapler validate "dist/arm64/WeChatTool Installer.app"
-spctl --assess --type execute --verbose "dist/arm64/WeChatTool Installer.app"
+xcrun stapler staple "dist/arm64/WeChatTool-Installer.app"
+xcrun stapler validate "dist/arm64/WeChatTool-Installer.app"
+spctl --assess --type execute --verbose "dist/arm64/WeChatTool-Installer.app"
 ```
 
 Adjust the version and architecture for your build. After stapling, make a new
 ZIP containing the stapled app and generate a checksum for **that** archive:
 
 ```sh
-ditto -c -k --sequesterRsrc --keepParent "dist/arm64/WeChatTool Installer.app" \
+ditto -c -k --sequesterRsrc --keepParent "dist/arm64/WeChatTool-Installer.app" \
   "dist/arm64/WeChatTool-Installer-0.1.0-arm64-notarized.zip"
 shasum -a 256 "dist/arm64/WeChatTool-Installer-0.1.0-arm64-notarized.zip" \
   > "dist/arm64/WeChatTool-Installer-0.1.0-arm64-notarized.zip.sha256"

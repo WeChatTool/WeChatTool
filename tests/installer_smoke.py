@@ -76,7 +76,7 @@ def sign_fixture(bundle: Path, entitlements: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("installer", type=Path, help="Path to the built WeChatTool Installer.app.")
+    parser.add_argument("installer", type=Path, help="Path to the built WeChatTool-Installer.app.")
     parser.add_argument("--arch", choices=("arm64", "x86_64"), default=platform.machine(),
                         help="Fixture architecture; Intel fixtures on Apple Silicon require Rosetta.")
     args = parser.parse_args()

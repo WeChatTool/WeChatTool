@@ -115,13 +115,13 @@ def main() -> None:
     build.mkdir(exist_ok=True)
     output = ROOT / "dist" / args.arch
     output.mkdir(parents=True, exist_ok=True)
-    final = output / "WeChatTool Installer.app"
+    final = output / "WeChatTool-Installer.app"
     archive = output / f"WeChatTool-Installer-{__version__}-{args.arch}.zip"
     if final.exists() or archive.exists():
         parser.error(f"Build output already exists in {output}. Move it elsewhere before rebuilding.")
     with tempfile.TemporaryDirectory(prefix="installer-", dir=build) as temporary:
         scratch = Path(temporary)
-        app = scratch / "WeChatTool Installer.app"
+        app = scratch / "WeChatTool-Installer.app"
         resources = app / "Contents/Resources"
         macos = app / "Contents/MacOS"
         resources.mkdir(parents=True)
@@ -153,7 +153,7 @@ def main() -> None:
         minimum, inventory = inspect_runtime(app, architectures)
         metadata = {
             "CFBundleExecutable": "WeChatToolInstaller", "CFBundleIdentifier": "local.wechattool.installer",
-            "CFBundleName": "WeChatTool Installer", "CFBundleDisplayName": "WeChatTool Installer",
+            "CFBundleName": "WeChatTool-Installer", "CFBundleDisplayName": "WeChatTool-Installer",
             "CFBundlePackageType": "APPL", "CFBundleShortVersionString": __version__, "CFBundleVersion": "1",
             "LSMinimumSystemVersion": minimum, "LSApplicationCategoryType": "public.app-category.utilities",
             "NSHighResolutionCapable": True, "CFBundleDevelopmentRegion": "en",

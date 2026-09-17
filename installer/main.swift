@@ -135,10 +135,10 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         let menu = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: Copy.text("About WeChatTool Installer", "关于 WeChatTool 安装器"),
+        appMenu.addItem(withTitle: Copy.text("About WeChatTool-Installer", "关于 WeChatTool 安装器"),
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: Copy.text("Quit WeChatTool Installer", "退出 WeChatTool 安装器"),
+        appMenu.addItem(withTitle: Copy.text("Quit WeChatTool-Installer", "退出 WeChatTool 安装器"),
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         menu.addItem(appItem)
@@ -154,7 +154,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     private func makeWindow() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 580),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = Copy.text("WeChatTool Installer", "WeChatTool 安装器")
+        window.title = Copy.text("WeChatTool-Installer", "WeChatTool 安装器")
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.center()
@@ -419,7 +419,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     private func showBackendError(_ error: Error) {
         setStatus(Copy.text("The installer could not run its bundled tools", "安装器无法运行内置工具"),
-                  Copy.text("Make sure you opened the complete WeChatTool Installer app. Try downloading a fresh copy for your Mac's processor.", "请确保打开的是完整的 WeChatTool 安装器应用。可重新下载适合此 Mac 处理器的版本。"),
+                  Copy.text("Make sure you opened the complete WeChatTool-Installer app. Try downloading a fresh copy for your Mac's processor.", "请确保打开的是完整的 WeChatTool 安装器应用。可重新下载适合此 Mac 处理器的版本。"),
                   detail: error.localizedDescription)
     }
 
