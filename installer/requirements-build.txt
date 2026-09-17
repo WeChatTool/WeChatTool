@@ -1,0 +1,2 @@
+# Only maintainers building the standalone installer need this dependency.
+pyinstaller==6.22.0

@@ -1,4 +1,4 @@
-.PHONY: build test analyze prepare
+.PHONY: build test analyze prepare installer
 PYTHON ?= python3
 
 build:
@@ -13,3 +13,6 @@ analyze:
 
 prepare: build
 	$(PYTHON) -m wechattool prepare --output build/WeChatTool-WeChat.app
+
+installer:
+	$(PYTHON) scripts/build-installer.py
