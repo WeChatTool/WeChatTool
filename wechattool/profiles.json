@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "id": "qt-revoke-predicate-arm64-v1",
+      "arch": "arm64",
+      "expected": "080c40b949e284521f01096be0179f1ac0035fd6",
+      "patch_offset": 12,
+      "replacement": "00008052",
+      "description": "Recognize message type 10002; replace boolean result with false."
+    },
+    {
+      "id": "qt-revoke-predicate-x86_64-v1",
+      "arch": "x86_64",
+      "expected": "554889e5817f0c122700000f94c05dc3",
+      "patch_offset": 11,
+      "replacement": "31c090",
+      "description": "Recognize message type 10002; replace boolean result with false."
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+# Build and distribution output
+build/
+dist/
+*.app/
+*.dylib
+*.so
+*.a
+*.o
+*.dSYM/
+*.dmg
+*.pkg
+
+# Python and editor caches
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.DS_Store
+
+# Local diagnostics and generated reports
+*.log
+*.logarchive/
+reports/
+
+# Local chat data and recovery artifacts
+backup/
+backups/
+chat-backup*/
+data-backup*/
+recovery/
+*.bak
+*.db
+*.db-wal
+*.db-shm
+*.kvdb
+*.kvdb-wal
+*.kvdb-shm
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.keychain-db
