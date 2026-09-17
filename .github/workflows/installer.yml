@@ -1,0 +1,108 @@
+name: Build and verify installer
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build Universal installer
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check release tag matches package version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from wechattool import __version__
+          if os.environ['REF_TYPE'] == 'tag':
+              expected = 'v' + __version__
+              if os.environ['REF_NAME'] != expected:
+                  raise SystemExit(f'Release tag must match package version: {expected}')
+          print(f'Building WeChatTool {__version__}')
+          PY
+      - name: Install verified Universal Python and collect runtime licenses
+        run: bash scripts/ci-setup-python.sh
+      - name: Build installer and checksum
+        run: |
+          build/ci-venv/bin/python scripts/build-installer.py \
+            --arch universal2 --minimum-macos 14.0 \
+            --runtime-license build/ci-licenses/Python-History-and-Licenses.txt \
+            --runtime-license build/ci-licenses/Python-HACL-LICENSE.txt \
+            --runtime-license build/ci-licenses/Python-Expat-COPYING.txt \
+            --runtime-license build/ci-licenses/Python-BLAKE2-LICENSE.txt \
+            --runtime-license installer/Python-Runtime-Packaging-NOTICE.txt
+      - name: Verify package signature and checksum
+        run: |
+          codesign --verify --deep --strict dist/universal2/WeChatTool-Installer.app
+          cd dist/universal2
+          shasum -a 256 -c ./*.zip.sha256
+      - name: Upload installer archive and build information
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-universal2
+          path: |
+            dist/universal2/*.zip
+            dist/universal2/*.zip.sha256
+            dist/universal2/build-info.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          overwrite: true
+
+  verify:
+    name: Test downloaded installer (${{ matrix.arch }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: installer-universal2
+          path: build/ci-download
+      - name: Verify and extract the downloaded archive
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          (cd build/ci-download && shasum -a 256 -c ./*.zip.sha256)
+          archives=(build/ci-download/*.zip)
+          test "${#archives[@]}" -eq 1
+          ditto -x -k "${archives[0]}" build/ci-installed.noindex
+          codesign --verify --deep --strict build/ci-installed.noindex/WeChatTool-Installer.app
+      - name: Test standalone installation and localized app names
+        env:
+          TEST_ARCH: ${{ matrix.arch }}
+        run: python tests/installer_smoke.py build/ci-installed.noindex/WeChatTool-Installer.app --arch "$TEST_ARCH"
+      - name: Test packaged plugin data isolation
+        env:
+          TEST_ARCH: ${{ matrix.arch }}
+        run: |
+          python tests/instance_isolation.py --arch "$TEST_ARCH" \
+            --plugin build/ci-installed.noindex/WeChatTool-Installer.app/Contents/Resources/WeChatTool.dylib

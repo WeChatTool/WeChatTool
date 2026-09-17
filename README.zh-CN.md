@@ -2,6 +2,8 @@
 
 [English](README.md) | 简体中文
 
+[![CI](https://github.com/WeChatTool/WeChatTool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/WeChatTool/WeChatTool/actions/workflows/ci.yml)
+
 让撤回的微信消息，留在你的 Mac 上。WeChatTool 为 macOS 微信提供本地防撤回功能，配有简单易用的图形安装器，无需命令行，也无需自行编译。
 
 支持多个微信账号同时使用，**每个安装副本登录一个账号，不同安装之间不共享数据**。各自的登录状态、聊天记录和设置独立保存，原版应用保持不变。

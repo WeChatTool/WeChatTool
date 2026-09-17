@@ -14,6 +14,36 @@ and has not been notarized by Apple. Installation steps are in the
 Independent installations are available in installer **v0.1.1 and later**.
 Each prepared copy has its own login, chats, and settings.
 
+## GitHub Actions
+
+The [CI workflow](https://github.com/WeChatTool/WeChatTool/actions/workflows/ci.yml)
+runs on pushes to `main`, tags matching `v*`, pull requests, and manual runs
+using **Run workflow**. It checks:
+
+- Python unit tests on Linux with Python 3.10 and 3.14.
+- Python, native, and sandbox integration tests on macOS 14 ARM, macOS 15 Intel,
+  and macOS 26 ARM. The macOS 14 job checks the supported OS baseline.
+
+After those checks pass, the reusable [installer workflow](../.github/workflows/installer.yml)
+builds a Universal installer on macOS 14. It uses a pinned official Universal
+Python distribution with download verification and includes the runtime
+licenses. Release tags must match the package version.
+
+Separate ARM and Intel jobs download the resulting ZIP, verify its checksum and
+signature, then run the standalone installer smoke tests and the packaged
+plugin's storage-isolation tests. These use synthetic apps; CI does not sign in
+to real WeChat accounts or replace manual checks of the installer interface.
+
+The run's **Artifacts** section contains `installer-universal2`, retained for
+**14 days**. It includes the installer ZIP, its `.zip.sha256` checksum, and
+`build-info.json`. To publish a release, select a fully successful CI run for
+the intended commit, download this artifact, and manually upload the verified
+installer ZIP and checksum to the corresponding GitHub release. An artifact
+may exist even when a later verification job fails, so check the whole run.
+
+CI produces **ad-hoc-signed** builds without Apple notarization. It requires no
+signing secrets and does not create or publish GitHub releases automatically.
+
 ## Build a local installer
 
 Use macOS with Xcode Command Line Tools and Python 3.10 or newer. Run from the

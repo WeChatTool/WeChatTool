@@ -2,6 +2,8 @@
 
 English | [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/WeChatTool/WeChatTool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/WeChatTool/WeChatTool/actions/workflows/ci.yml)
+
 Keep recalled WeChat messages on your Mac. WeChatTool adds local anti-recall protection with a simple graphical installer. No command line or compiling required.
 
 Use different WeChat accounts side by side, with **one account per installation**. Each copy has separate chats, login, and settings. Your original app remains unchanged.

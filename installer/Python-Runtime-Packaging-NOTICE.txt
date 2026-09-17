@@ -1,0 +1,16 @@
+Python runtime packaging notice
+
+This installer incorporates Python 3.13.15 from the Python Software
+Foundation's official macOS installer, packaged with PyInstaller 6.22.0.
+The Python source code has not been modified. The runtime and selected
+standard-library modules were relocated into this application. Mach-O
+library load paths were adjusted to resolve inside the bundled runtime;
+original binary signatures were replaced with local ad-hoc signatures.
+Unused standard-library modules and optional components were omitted.
+Python is included as a private application runtime and is not installed
+or registered as a system Python.
+
+The included Python license, full Python license document, HACL*, BLAKE2,
+and Expat notices retain their respective original license terms.
+Libraries supplied by macOS (including zlib and libffi) are dynamically
+linked and are not redistributed in this application.
