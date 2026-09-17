@@ -7,6 +7,10 @@ build:
 test:
 	$(PYTHON) -m unittest discover -s tests -v
 	$(PYTHON) tests/native_runtime.py
+	$(PYTHON) tests/recall_notice.py
+	$(PYTHON) tests/recall_runtime.py
+	$(PYTHON) tests/notice_hook.py
+	$(PYTHON) tests/notice_profile_validation.py
 
 analyze:
 	$(PYTHON) -m wechattool analyze

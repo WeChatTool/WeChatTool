@@ -35,6 +35,11 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {hook['arch']}: {hook['image']} @ 0x{hook['address']:x} ({hook['id']})")
                 for problem in report["problems"]:
                     print(f"  {problem}")
+                notices = report["recall_notices"]
+                if notices["architectures"]:
+                    print("  Recall notices: available for " + ", ".join(notices["architectures"]))
+                else:
+                    print("  Recall notices: unavailable for this build; preservation support is unchanged.")
                 print("Static checks only. Confirm preservation with a live revoke test before relying on it.")
             return 0 if report["status"] == "structurally-compatible" else 2
         if sys.platform != "darwin":

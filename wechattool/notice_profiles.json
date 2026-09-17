@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "adapters": [
+    {
+      "id": "native-recall-notice-4.1.15-270099-arm64",
+      "layout": "messagewrap-libcpp-alt-0x130",
+      "version": "4.1.15",
+      "build": "270099",
+      "arch": "arm64",
+      "uuid": "ed4dcbd2-4896-3a6d-8a70-7d8d88f74b0d",
+      "image_sha256": "65117e24ca1a8b66aff122db2e86dbd544a8dc98064526440d1ffba690fd9a69",
+      "predicate_address": 76395860,
+      "insert_notice": {
+        "address": 70151196,
+        "size": 1464,
+        "sha256": "61cc7acefbaddd9d4d1afef668e5599aaa8754e13308d09d4ae97976c56bb219"
+      },
+      "handler": {
+        "address": 51139224,
+        "size": 1324,
+        "sha256": "77400d259eeec58ae1c8c79223deac107bbe43dc78955844c5cf6b09c2e86bd7",
+        "expected": "f657bda9f44f01a9fd7b02a9fd830091ff8318d1f40301aaf30300aa284603b0"
+      },
+      "task_slot": {
+        "address": 105904400,
+        "size": 32,
+        "sha256": "30e50265b4ca78397f7ce58e218f15b0c836dfae6637191c1ed2af9451317cd0"
+      }
+    },
+    {
+      "id": "native-recall-notice-4.1.15-270099-x86_64",
+      "layout": "messagewrap-libcpp-default-0x130",
+      "version": "4.1.15",
+      "build": "270099",
+      "arch": "x86_64",
+      "uuid": "97e21436-abda-3b79-bec0-ef2653c6b423",
+      "image_sha256": "65117e24ca1a8b66aff122db2e86dbd544a8dc98064526440d1ffba690fd9a69",
+      "predicate_address": 84113504,
+      "insert_notice": {
+        "address": 77217680,
+        "size": 1776,
+        "sha256": "d6e463c344c227a7b18eade24fe42702d11f686fbea6dcb874a13a0df4df8c68"
+      },
+      "handler": {
+        "address": 55940272,
+        "size": 1616,
+        "sha256": "001b5774aa4ce69bfc3afa54506e65ebfa327bac390dd125fd2948d0cbb80380",
+        "expected": "554889e541574156534881ec280600004989f74889fb488b05bb43eb06488b00"
+      },
+      "task_slot": {
+        "address": 116726368,
+        "size": 16,
+        "sha256": "dac4f60f48c605603b1d74c3e0df2200df20cd20c23f9f63ca9cb4a01db7c062"
+      }
+    }
+  ]
+}

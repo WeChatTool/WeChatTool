@@ -34,22 +34,89 @@ These addresses document the inspected file; the analyzer searches the instructi
 
 ## Instruction recipes
 
-Both supported predicates return whether a 32-bit field at message offset `0x0c` equals `10002` (`0x2712`). The plugin changes only the boolean-result instruction. It does not replace the function entry, build a trampoline, or parse private C++ objects.
+Both supported predicates return whether a 32-bit field at message offset `0x0c` equals `10002` (`0x2712`). The preservation patch changes only the boolean-result instruction:
 
 | Architecture | Exact original predicate bytes | Offset within predicate | Replacement bytes |
 | --- | --- | --- | --- |
 | arm64 | `080c40b949e284521f01096be0179f1ac0035fd6` | `12` | `00008052` |
 | x86_64 | `554889e5817f0c122700000f94c05dc3` | `11` | `31c090` |
 
-On arm64, `CSET W0, EQ` becomes `MOV W0, #0`. On Intel, `SETE AL` becomes `XOR EAX, EAX; NOP`. Original loads, comparisons, function boundaries, and return instructions remain intact.
+On arm64, `CSET W0, EQ` becomes `MOV W0, #0`. On Intel, `SETE AL` becomes `XOR EAX, EAX; NOP`. This patch keeps original loads, comparisons, function boundaries, and return instructions intact. Optional notices intercept a separate function, described below.
 
 Read-only inspection of the four direct arm64 callers in build 270099 shows that this predicate selects system/revoke message extension construction and access. This supports the intended interception point but does not establish coverage of every deletion or synchronization path.
 
-The ARM instruction write is aligned and its instruction cache is invalidated. The Intel replacement spans three bytes and is not atomic. On both architectures, changing page protection temporarily removes execution permission, so even an atomic ARM store is unsuitable for patching a core that may already be executing.
+The ARM preservation-only instruction write is aligned and its instruction cache is invalidated. The Intel replacement and the optional notice detours span multiple instructions and are not atomic. On both architectures, changing page protection temporarily removes execution permission, so even an atomic ARM store is unsuitable for patching a core that may already be executing.
 
 The plugin records the images already loaded when it initializes and refuses to patch any of those images (`late-image-refused`). It patches a matching newly loaded image only from the dyld image-add callback, before that image's initializers run. This is not a hot-patching mechanism. An app version that loads its core before the plugin initializes cannot activate through this path, even if static analysis succeeds. Disabling or enabling the plugin takes effect on the next process launch.
 
 This also depends on the core being visible to dyld's image callbacks. A custom loader that maps the implementation without those callbacks is not covered. Read-only inspection of build 270099 places the primary-load call under the launcher's `_LdMain` entry, but its wrapper has multiple loading paths; other loading paths still require runtime verification.
+
+## Optional permanent recall notices
+
+Message preservation and notice support have separate compatibility requirements.
+`wechattool/notice_profiles.json` lists reviewed adapters for 4.1.15 / 270099 on
+both architectures. The analyzer selects an adapter only when version, build,
+architecture, UUID, predicate address, and the complete source-image SHA-256
+match. The same profiles are compiled into the plugin. A generated app plan
+cannot introduce object offsets, executable bytes, or callback addresses.
+Malformed or ambiguous profiles are rejected.
+
+The preservation patch above is always installed first. A matching notice
+adapter then verifies SHA-256 hashes of three complete native functions: the
+inner recall handler, the local system-message helper, and the current-task TLS
+slot getter. Only the handler entry is replaced with a fixed absolute jump to
+the plugin: 16 bytes on arm64, 14 on Intel. Unknown layouts or mismatched helper
+code leave the existing preservation patch active without notices.
+
+| Native function | arm64 address | x86_64 address |
+| --- | --- | --- |
+| Inner recall handler | `0x30c5298` | `0x35594b0` |
+| Local system-message helper | `0x42e6c1c` | `0x49a3f90` |
+| Current-task TLS slot getter | `0x64ff910` | `0x6f51a60` |
+
+The raw XML dispatcher selects the recall handler independently of the patched
+predicate. Its outer handler constructs a complete 632-byte MessageWrap, calls
+the inner handler, destroys the wrapper, and reports the event handled. The
+plugin intercepts this inner boundary and returns true without running the
+original deletion/replacement path. It does not build a trampoline or execute
+displaced instructions.
+
+The reviewed record has a type at `0x0c`, a session string at `0x18`, and recall
+XML at `0x130`. The arm64 slice uses libc++'s alternate string layout; Intel uses
+its default layout. Reads use bounded `mach_vm_read_overwrite` snapshots and
+validate short/long string representations before parsing. Ordinary message
+contents are not captured. XML must contain a valid revoke event, positive
+message ID, matching session, and replacement text. External entities, DTDs,
+ambiguous fields, oversized inputs, and invalid UTF-8 are rejected.
+
+The native helper creates a local type-10000 system message, with a fresh local
+identity and server ID zero, using the session and notice text. WeChat stores and
+displays this row through its own local message and session services. It contains
+WeChat's supplied recall text plus a local recall-blocked suffix. The plugin does
+not directly open databases or send an outgoing message. WeChat retains control
+of local history storage and deletion.
+
+The helper must run synchronously inside the intercepted WeChat task; a Cocoa or
+GCD queue does not provide the required private coroutine context. Before calling
+it, the plugin checks the nullable TLS slot, its weak-pointer holder, the task
+and control block, reference-count liveness, and readable context fields. Context
+layout differs by architecture. Native services may yield, so the plugin holds
+no mutex across the helper and tracks reentrancy per task, not per OS thread.
+Session/text snapshots are owned across the call. A bounded cache deduplicates
+session/message-ID pairs within the current process; it is not a persistent
+cross-launch deduplication database.
+
+The original native recall path replaces the original message with its notice.
+Merely skipping deletion or pretending that the original is absent is inadequate:
+its missing-message path drops group recalls, and the generated native notice
+still inherits the original server ID. Using the separate local-message helper
+preserves the original identity and avoids that replacement path.
+
+Invalid metadata or unavailable context suppresses the notice while the event is
+still consumed and the preservation patch remains active. Compatibility and
+synthetic parser, guarded-memory, native-hook, and packaging tests do not prove
+live behavior in WeChat. Verify preservation, the displayed actor, group chats,
+and notice persistence after reopening the conversation and restarting WeChat.
 
 ## Extending compatibility
 
@@ -88,6 +155,10 @@ log stream --style compact --level info --predicate 'subsystem == "local.wechatt
 ```
 
 The log category is `runtime`. `initialized-active` or a later `active` entry indicates the hook was applied. `initialized-no-image-matched` means the plugin is waiting for a matching image. `initialized-refused` means a matching image was found but a validation or timing guard refused the patch. `late-image-refused` means the core was already loaded when the plugin initialized and was left unchanged.
+
+`recall-notices-active` means the optional observer was installed. To troubleshoot
+display separately while retaining preservation, launch the copied executable
+with `WECHATTOOL_NOTICES=0`. This switch also takes effect only on process launch.
 
 The preferred startup disable switch is:
 

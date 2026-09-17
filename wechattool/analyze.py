@@ -8,6 +8,7 @@ import plistlib
 from pathlib import Path
 
 from .macho import MachO, MachOError
+from .notices import notice_adapter
 
 
 class CompatibilityError(ValueError):
@@ -138,6 +139,13 @@ def analyze(app: Path, image_relative: str | None = None) -> dict:
         problems.append("At least one image has ambiguous matches; refusing all hooks.")
     if not arches:
         problems.append("No supported executable architectures.")
+    notice_arches = []
+    if not problems:
+        for hook in hooks:
+            adapter = notice_adapter(hook, info["CFBundleShortVersionString"], info["CFBundleVersion"])
+            if adapter:
+                hook["notice_adapter"] = adapter
+                notice_arches.append(hook["arch"])
     return {
         "schema_version": 1, "bundle_id": info["CFBundleIdentifier"],
         "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
@@ -145,6 +153,9 @@ def analyze(app: Path, image_relative: str | None = None) -> dict:
         "status": "structurally-compatible" if not problems else "unsupported",
         "validation": "static-only; live message revoke behavior has not been verified",
         "runtime_requirement": "target image must load after plugin initialization",
+        "recall_notices": {"status": "available" if notice_arches else "unavailable",
+                           "architectures": notice_arches,
+                           "validation": "reviewed metadata layout; live recall notice test required"},
         "hooks": hooks if not problems else [], "images": images,
         "diagnostics": diagnostics, "problems": problems,
     }

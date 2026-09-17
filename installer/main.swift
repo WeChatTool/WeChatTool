@@ -338,8 +338,13 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
                    report["status"] as? String == "structurally-compatible",
                    let version = report["version"] as? String, let build = report["build"] as? String {
                     self.compatible = true
+                    let notices = report["recall_notices"] as? [String: Any]
+                    let hasNotices = notices?["status"] as? String == "available"
+                    let features = hasNotices
+                        ? Copy.text("Recall notices are available. Verify preservation and notices with a new test message after opening your copy.", "此版本支持撤回提醒。打开副本后，请用一条新测试消息验证防撤回和提醒功能。")
+                        : Copy.text("Message preservation is available; recall notices are unavailable for this version. Verify with a new test message after opening your copy.", "此版本可启用防撤回，暂不支持撤回提醒。打开副本后，请用一条新测试消息验证。")
                     self.setStatus(Copy.text("WeChat \(version) (\(build)) passed the check", "微信 \(version)（\(build)）已通过检查"),
-                                   Copy.text("Choose where to save your copy. After opening it, verify the feature with a new test message.", "请选择副本的保存位置。打开副本后，请用一条新测试消息验证防撤回功能。"))
+                                   features)
                 } else {
                     self.setStatus(Copy.text("This WeChat app could not pass the check", "此微信应用未通过检查"),
                                    Copy.text("Choose a clean official installation. If this version is unsupported, continue using the original app.", "请选择未经修改的官方微信。如果此版本不受支持，请继续使用原应用。"), detail: response.details)

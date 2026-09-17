@@ -129,6 +129,7 @@ def main() -> None:
         freeze = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir",
                   "--name", "wechattool-backend", "--target-arch", args.arch,
                   "--paths", str(ROOT), "--add-data", f"{ROOT / 'wechattool/profiles.json'}:wechattool",
+                  "--add-data", f"{ROOT / 'wechattool/notice_profiles.json'}:wechattool",
                   "--distpath", str(scratch / "frozen"), "--workpath", str(scratch / "work"),
                   "--specpath", str(scratch)]
         # The backend needs no networking or optional archive formats. Avoid

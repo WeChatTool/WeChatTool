@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
-// Original implementation. This module never reads messages or account data.
+// Original implementation. Local notices use WeChat's own message services.
 #import <Foundation/Foundation.h>
+#import <CommonCrypto/CommonDigest.h>
+#import "RecallRuntime.h"
+#include "NoticeProfiles.inc"
 #include <libkern/OSCacheControl.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
@@ -19,8 +22,10 @@ namespace {
 
 #if defined(__arm64__)
 static NSString *const kArchitecture = @"arm64";
+static NSString *const kNoticeLayout = @"messagewrap-libcpp-alt-0x130";
 #elif defined(__x86_64__)
 static NSString *const kArchitecture = @"x86_64";
+static NSString *const kNoticeLayout = @"messagewrap-libcpp-default-0x130";
 #else
 #error Unsupported architecture
 #endif
@@ -91,7 +96,8 @@ static bool AllowedHook(NSDictionary *hook) {
     if (![hook isKindOfClass:NSDictionary.class] || !String(hook[@"id"], 128) ||
         !RelativeImagePath(hook[@"image"]) || !String(hook[@"uuid"], 36) ||
         !String(hook[@"arch"], 16) || !String(hook[@"expected"], 128) ||
-        !String(hook[@"replacement"], 16)) return false;
+        !String(hook[@"replacement"], 16) ||
+        (hook[@"notice_adapter"] && !String(hook[@"notice_adapter"], 128))) return false;
     uuid_t uuid;
     uuid_string_t normalized;
     if (uuid_parse([hook[@"uuid"] UTF8String], uuid) != 0) return false;
@@ -113,7 +119,17 @@ static bool AllowedHook(NSDictionary *hook) {
     return false;
 }
 
+static bool HexString(id value, NSUInteger length) {
+    if (![value isKindOfClass:NSString.class] || [value length] != length) return false;
+    for (NSUInteger i = 0; i < length; ++i) {
+        const unichar c = [value characterAtIndex:i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    return true;
+}
+
 static NSData *Hex(NSString *hex) {
+    if (![hex isKindOfClass:NSString.class] || hex.length % 2 || !HexString(hex, hex.length)) return nil;
     NSMutableData *data = [NSMutableData dataWithLength:hex.length / 2];
     uint8_t *bytes = static_cast<uint8_t *>(data.mutableBytes);
     for (NSUInteger i = 0; i < data.length; ++i) {
@@ -263,9 +279,15 @@ static NSString *Patch(uintptr_t address, NSData *expected, NSUInteger offset, N
         return @"bytes-changed-before-write";
     }
 #if defined(__arm64__)
-    uint32_t instruction;
-    memcpy(&instruction, replacement.bytes, sizeof(instruction));
-    __atomic_store_n(reinterpret_cast<uint32_t *>(target + offset), instruction, __ATOMIC_RELEASE);
+    if (replacement.length == sizeof(uint32_t)) {
+        uint32_t instruction;
+        memcpy(&instruction, replacement.bytes, sizeof(instruction));
+        __atomic_store_n(reinterpret_cast<uint32_t *>(target + offset), instruction, __ATOMIC_RELEASE);
+    } else {
+        // The notice branch is installed only in a fresh dyld image, before
+        // initializers or message-processing threads can execute this code.
+        memcpy(target + offset, replacement.bytes, replacement.length);
+    }
 #else
     // The callback refuses images already loaded before this module started.
     memcpy(target + offset, replacement.bytes, replacement.length);
@@ -274,6 +296,124 @@ static NSString *Patch(uintptr_t address, NSData *expected, NSUInteger offset, N
     const bool verified = memcmp(target, patched.bytes, patched.length) == 0;
     if (!Restore(pages, count)) return @"protection-restore-failed";
     return verified ? @"active" : @"write-verification-failed";
+}
+
+// Only reviewed layouts compiled into this plugin can enable metadata reads.
+// An app plan selects an adapter by ID; it cannot supply offsets or callbacks.
+static bool ValidNoticeProfile(id value) {
+    if (![value isKindOfClass:NSDictionary.class]) return false;
+    NSDictionary *profile = value;
+    if (!String(profile[@"id"], 128) || !String(profile[@"version"], 64) ||
+        !String(profile[@"build"], 64) || !String(profile[@"arch"], 16) ||
+        !String(profile[@"layout"], 128) || !String(profile[@"uuid"], 36) ||
+        !HexString(profile[@"image_sha256"], 64)) return false;
+    const bool arm = [profile[@"arch"] isEqualToString:@"arm64"];
+    if (!arm && ![profile[@"arch"] isEqualToString:@"x86_64"]) return false;
+    if (![profile[@"layout"] isEqualToString:arm ? @"messagewrap-libcpp-alt-0x130" :
+                                                  @"messagewrap-libcpp-default-0x130"]) return false;
+    uuid_t parsed;
+    uuid_string_t normalized;
+    if (uuid_parse([profile[@"uuid"] UTF8String], parsed) != 0) return false;
+    uuid_unparse_lower(parsed, normalized);
+    if (![profile[@"uuid"] isEqualToString:@(normalized)]) return false;
+    uint64_t predicate;
+    if (!Integer(profile[@"predicate_address"], &predicate) || !predicate || predicate > UINT64_MAX - 20 ||
+        (arm && predicate % 4)) return false;
+    for (NSString *key in @[@"insert_notice", @"handler", @"task_slot"]) {
+        id probeValue = profile[key];
+        if (![probeValue isKindOfClass:NSDictionary.class]) return false;
+        NSDictionary *probe = probeValue;
+        uint64_t address, size;
+        if (!Integer(probe[@"address"], &address) || !address ||
+            !Integer(probe[@"size"], &size) || !size || size > 64 * 1024 ||
+            address > UINT64_MAX - size || (arm && address % 4) ||
+            !HexString(probe[@"sha256"], 64)) return false;
+        if ([key isEqualToString:@"handler"] &&
+            (size < 32 || !HexString(probe[@"expected"], 64))) return false;
+    }
+    return true;
+}
+
+static NSArray *DecodeNoticeProfiles(NSData *data) {
+    id document = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![document isKindOfClass:NSDictionary.class]) return nil;
+    uint64_t schema;
+    id profiles = document[@"adapters"];
+    if (!Integer(document[@"schema_version"], &schema) || schema != 1 ||
+        ![profiles isKindOfClass:NSArray.class]) return nil;
+    for (id profile in profiles) if (!ValidNoticeProfile(profile)) return nil;
+    return profiles;
+}
+
+static NSDictionary *FindNoticeAdapter(NSDictionary *hook, NSArray *profiles) {
+    NSBundle *bundle = NSBundle.mainBundle;
+    NSDictionary *selected = nil;
+    for (NSDictionary *profile in profiles) {
+        if ([profile[@"layout"] isEqual:kNoticeLayout] &&
+            [profile[@"arch"] isEqual:kArchitecture] &&
+            [profile[@"uuid"] isEqual:hook[@"uuid"]] &&
+            [profile[@"image_sha256"] isEqual:hook[@"image_sha256"]] &&
+            [profile[@"predicate_address"] isEqual:hook[@"address"]] &&
+            [profile[@"version"] isEqual:[bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]] &&
+            [profile[@"build"] isEqual:[bundle objectForInfoDictionaryKey:@"CFBundleVersion"]]) {
+            // Match identity before ID, exactly as the Python selector does.
+            if (selected) return nil;
+            selected = profile;
+        }
+    }
+    return [selected[@"id"] isEqual:hook[@"notice_adapter"]] ? selected : nil;
+}
+
+static NSDictionary *NoticeAdapter(NSDictionary *hook) {
+    if (!String(hook[@"notice_adapter"], 128)) return nil;
+    static NSArray *profiles;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSData *data = [NSData dataWithBytes:kCompiledNoticeProfiles length:sizeof(kCompiledNoticeProfiles) - 1];
+        profiles = DecodeNoticeProfiles(data);
+    });
+    return FindNoticeAdapter(hook, profiles);
+}
+
+static bool NoticeFunction(const mach_header *header, intptr_t slide, NSDictionary *hook,
+                           NSDictionary *probe, uintptr_t *runtimeAddress) {
+    const uint64_t size = [probe[@"size"] unsignedLongLongValue];
+    NSMutableDictionary *region = [hook mutableCopy];
+    region[@"address"] = probe[@"address"];
+    if (!ValidateImage(header, region, static_cast<size_t>(size)) ||
+        !Slid([probe[@"address"] unsignedLongLongValue], slide, runtimeAddress)) return false;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(reinterpret_cast<const void *>(*runtimeAddress), static_cast<CC_LONG>(size), digest);
+    return [[NSData dataWithBytes:digest length:sizeof(digest)] isEqualToData:Hex(probe[@"sha256"])];
+}
+
+static NSString *TryNoticeHook(const mach_header *header, intptr_t slide, NSDictionary *hook) {
+    NSDictionary *adapter = NoticeAdapter(hook);
+    if (!adapter) return nil;
+    const char *disabled = getenv("WECHATTOOL_NOTICES");
+    if (disabled && strcmp(disabled, "0") == 0) return nil;
+    uintptr_t handler, emitter, taskSlot;
+    if (!NoticeFunction(header, slide, hook, adapter[@"handler"], &handler) ||
+        !NoticeFunction(header, slide, hook, adapter[@"insert_notice"], &emitter) ||
+        !NoticeFunction(header, slide, hook, adapter[@"task_slot"], &taskSlot))
+        return @"recall-notices-function-mismatch";
+    const bool chinese = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];
+    // The intercepted handler already executes inside a native WeChat task.
+    // Never call its yielding message services from a Cocoa/GCD callback.
+    WCTConfigureRecallNotices(reinterpret_cast<WCTRecallEmitter>(emitter),
+                             reinterpret_cast<WCTTaskSlotGetter>(taskSlot), chinese);
+    const uintptr_t callback = reinterpret_cast<uintptr_t>(&WCTHandleRecallMessage);
+#if defined(__arm64__)
+    // LDR X16, literal; BR X16; 64-bit callback. No displaced code is executed.
+    uint8_t jump[16] = {0x50, 0x00, 0x00, 0x58, 0x00, 0x02, 0x1f, 0xd6};
+    memcpy(jump + 8, &callback, sizeof(callback));
+#else
+    // JMP [RIP+0]; 64-bit callback. Preserve all incoming argument registers.
+    uint8_t jump[14] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00};
+    memcpy(jump + 6, &callback, sizeof(callback));
+#endif
+    return Patch(handler, Hex(adapter[@"handler"][@"expected"]), 0,
+                 [NSData dataWithBytes:jump length:sizeof(jump)]);
 }
 
 static void ImageAdded(const mach_header *header, intptr_t slide) {
@@ -313,9 +453,16 @@ static void ImageAdded(const mach_header *header, intptr_t slide) {
             }
             NSString *status = Patch(address, expected, [hook[@"patch_offset"] unsignedIntegerValue],
                                      Hex(hook[@"replacement"]));
-            if ([status isEqualToString:@"active"] || [status isEqualToString:@"already-active"])
+            const bool active = [status isEqualToString:@"active"] || [status isEqualToString:@"already-active"];
+            if (active)
                 runtime->applied++;
             Log(runtime->log, status, hook[@"id"]);
+            if (active) {
+                NSString *noticeStatus = TryNoticeHook(header, slide, hook);
+                if ([noticeStatus isEqualToString:@"active"] || [noticeStatus isEqualToString:@"already-active"])
+                    Log(runtime->log, @"recall-notices-active", hook[@"id"]);
+                else if (noticeStatus) Log(runtime->log, noticeStatus, hook[@"id"]);
+            }
         }
         pthread_mutex_unlock(&runtime->mutex);
     }

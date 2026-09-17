@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A macOS WeChat plugin that helps keep received messages visible when the sender recalls them.
+A macOS WeChat plugin that helps keep received messages visible when the sender recalls them, with recall notices on supported versions.
 
 WeChatTool creates a separate plugin-enabled copy of WeChat. Your original app remains unchanged and available to use.
 
@@ -38,13 +38,21 @@ The two apps may use the same chat storage. **Do not run them together.** An app
 
 After preparation succeeds, choose **Open WeChat**, or **Show in Finder** to locate your copy. Log in normally.
 
-For a first test, have another account send a new text message, then recall it. Check that it remains visible after reopening the conversation. Also verify normal messaging and access to your existing history before relying on the plugin.
+For a first test, have another account send a new text message, then recall it. Check that the original message remains visible and, on a supported version, a recall notice appears in the same conversation. Reopen the conversation to check both. Also verify normal messaging and access to your existing history before relying on the plugin.
 
 Use this copied app whenever you want the plugin enabled. Opening the original **WeChat.app** in Applications runs the official installation.
+
+## Recall notices
+
+On supported versions, WeChatTool keeps the original message and adds a **local system message in the same conversation**. The notice uses WeChat’s recall text, including the sender’s name as supplied by the event, followed by “(recall blocked on this Mac)” or “（已阻止本机撤回）”.
+
+WeChat saves the notice with the local conversation history, so it remains after you close and reopen the app. It is not sent to the other participants. **Recreate your WeChat copy with the updated installer** to enable this feature in an existing installation.
 
 ## Compatibility
 
 WeChat **4.1.15 (build 270099)** has passed the compatibility check for Apple Silicon and Intel. Native tests have run on Apple Silicon and for the Intel build through Rosetta. This is not a guarantee that every WeChat feature, message type, or future release will work.
+
+Recall-notice support has been reviewed for this exact version and build on both processors. **Permanent notices are experimental: validation uses isolated test apps, and verification in a real WeChat conversation is still pending.** Other versions that pass the compatibility check may preserve messages without showing recall notices.
 
 Check your installed version before creating each copy, then verify the feature with a test message. WeChat 3.x, Windows, and mobile clients are not supported.
 
@@ -54,7 +62,7 @@ After WeChat updates, open the installer, select the updated official app, and c
 
 Quit the previous copy before opening the new one. Keep the previous app until you have checked the new copy. WeChat’s automatic updates are not disabled by this tool; an update to the prepared app can remove or disable the plugin.
 
-To update the installer itself, download a newer compatible packaged build when one is available on [Releases](https://github.com/WeChatTool/WeChatTool/releases).
+To update the installer itself, download a newer compatible packaged build when one is available on [Releases](https://github.com/WeChatTool/WeChatTool/releases). **Create a fresh WeChat copy with the updated installer to enable new features such as recall notices.** Existing copies do not receive plugin updates automatically.
 
 ## Return to the original app or uninstall
 
@@ -72,6 +80,7 @@ Do not delete WeChat’s chat-data folders or containers.
 | The destination already exists | Choose a new name ending in `.app`, or use Finder to remove only an old generated app. |
 | The copied app will not launch, sign in, or show existing chats | Quit it and return to the original app. Do not delete databases or reset account data to troubleshoot. |
 | Messages are still recalled | Confirm that you opened the prepared copy. Optional runtime diagnostics are below. |
+| Messages remain visible, but there is no recall notice | Check the conversation where the message was recalled. Recreate the copy with the updated installer; your WeChat version must also support notices. |
 | The plugin stopped working after an update | Check the updated official app and prepare a new copy. |
 
 When reporting a problem, include your macOS version, processor, WeChat version/build, and the compatibility result or error shown by the installer. Remove personal paths and identifiers before sharing diagnostic output.
@@ -152,6 +161,7 @@ log stream --style compact --level info --predicate 'subsystem == "local.wechatt
 ```
 
 - `active`: the plugin activated. Confirm the result with a test message.
+- `recall-notices-active`: recall notices are enabled for this installation. Confirm with a test recall and check the notice in that conversation.
 - `initialized-no-image-matched`: the plugin is waiting during startup. This alone does not mean activation succeeded.
 - `late-image-refused`, `initialized-refused`, or a mismatch status: the plugin could not activate for this launch. Return to the original app and check compatibility again.
 - `disabled`: the plugin was disabled for this launch.
@@ -172,7 +182,7 @@ This disables the plugin for that launch only. It does not restore the copied ap
 - Your own recalls and recalls from your other devices may also remain visible locally.
 - The plugin cannot recover messages that were already removed, or media that was never downloaded or is no longer available.
 - Some message types or WeChat features may behave differently. Compatibility with future releases is not guaranteed.
-- The plugin does not read or export chat databases, account credentials, or message contents. Its logs contain activation and compatibility status, not conversations.
+- To show notices, the plugin temporarily processes recall-event text and conversation identifiers in memory, then asks WeChat to save a local system message. It does not directly open chat databases, read ordinary message contents or account credentials, or export this information. Plugin logs contain activation and compatibility status without names, conversation identifiers, or message text.
 - WeChatTool is an independent project. The prepared app is signed locally, not with WeChat’s original publisher identity.
 
 ## License
