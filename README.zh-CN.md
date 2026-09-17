@@ -6,11 +6,11 @@
 
 支持多个微信账号同时使用，**每个安装副本登录一个账号，不同安装之间不共享数据**。各自的登录状态、聊天记录和设置独立保存，原版应用保持不变。
 
-**开发版说明：** 独立安装功能需要新的 **0.1.1** 安装器。下方已发布的 **v0.1.0** 下载**不包含**此功能。0.1.1 尚未发布；如需按照下文使用多账号功能，请先[从当前源代码构建安装器](docs/distribution.md)。
+独立安装功能需要 **v0.1.1 或更高版本**的安装器。
 
 ## 使用 Mac 安装器
 
-**[下载 WeChatTool-Installer v0.1.0](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.0/WeChatTool-Installer-0.1.0-universal2.zip)** · [发布说明与校验值](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.0)
+**[下载 WeChatTool-Installer v0.1.1](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.1/WeChatTool-Installer-0.1.1-universal2.zip)** · [发布说明与校验值](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.1)
 
 同一个通用 ZIP 压缩包支持运行 **macOS 14 或更高版本的 Apple Silicon 和 Intel Mac**。安装器已内置所需组件，无需安装 Python、Xcode 或开发工具。标为 **Source code** 的压缩包仅包含源代码，不包含安装器应用。
 

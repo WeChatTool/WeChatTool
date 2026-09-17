@@ -6,11 +6,11 @@ Keep recalled WeChat messages on your Mac. WeChatTool adds local anti-recall pro
 
 Use different WeChat accounts side by side, with **one account per installation**. Each copy has separate chats, login, and settings. Your original app remains unchanged.
 
-**Development update:** Independent installations require the new **0.1.1** installer build. The published **v0.1.0** download below does **not** include this feature. Version 0.1.1 has not been published yet; [build the current installer from source](docs/distribution.md) to use the multi-account instructions below.
+Independent installations require installer **v0.1.1 or later**.
 
 ## Install with the Mac app
 
-**[Download WeChatTool-Installer v0.1.0](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.0/WeChatTool-Installer-0.1.0-universal2.zip)** · [Release notes and checksum](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.0)
+**[Download WeChatTool-Installer v0.1.1](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.1/WeChatTool-Installer-0.1.1-universal2.zip)** · [Release notes and checksum](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.1)
 
 One Universal ZIP supports **Apple Silicon and Intel Macs running macOS 14 or later**. The installer includes everything it needs; you do not need Python, Xcode, or developer tools. The **Source code** archives contain code only, not the installer app.
 

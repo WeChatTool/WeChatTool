@@ -5,15 +5,14 @@ need Python, Xcode, Terminal, or a compiler. The installer contains a native Mac
 interface, the prebuilt plugin, and a private Python runtime running the same
 backend as the command-line tool. It does not include WeChat or any user data.
 
-The [v0.1.0 release](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.0)
-provides a [Universal installer ZIP](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.0/WeChatTool-Installer-0.1.0-universal2.zip)
+The [v0.1.1 release](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.1)
+provides a [Universal installer ZIP](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.1/WeChatTool-Installer-0.1.1-universal2.zip)
 for Apple Silicon and Intel Macs running macOS 14 or later. It is ad-hoc signed
 and has not been notarized by Apple. Installation steps are in the
 [English README](../README.md) and [简体中文说明](../README.zh-CN.md).
 
-Independent installations are part of the current **0.1.1** source build and
-are not included in the published v0.1.0 installer. Version 0.1.1 has not yet
-been published; the commands below build it locally.
+Independent installations are available in installer **v0.1.1 and later**.
+Each prepared copy has its own login, chats, and settings.
 
 ## Build a local installer
 
