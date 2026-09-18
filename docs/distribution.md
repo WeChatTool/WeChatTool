@@ -5,8 +5,8 @@ need Python, Xcode, Terminal, or a compiler. The installer contains a native Mac
 interface, the prebuilt plugin, and a private Python runtime running the same
 backend as the command-line tool. It does not include WeChat or any user data.
 
-The [v0.1.1 release](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.1)
-provides a [Universal installer ZIP](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.1/WeChatTool-Installer-0.1.1-universal2.zip)
+The [v0.1.2 release](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.2)
+provides a [Universal installer ZIP](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.2/WeChatTool-Installer-0.1.2-universal2.zip)
 for Apple Silicon and Intel Macs running macOS 14 or later. It is ad-hoc signed
 and has not been notarized by Apple. Installation steps are in the
 [English README](../README.md) and [简体中文说明](../README.zh-CN.md).
@@ -152,7 +152,7 @@ Configure your notarization credentials in Keychain separately. Submit the ZIP,
 wait for acceptance, and staple the ticket to the app:
 
 ```sh
-xcrun notarytool submit "dist/arm64/WeChatTool-Installer-0.1.1-arm64.zip" \
+xcrun notarytool submit "dist/arm64/WeChatTool-Installer-0.1.2-arm64.zip" \
   --keychain-profile "WeChatTool-notary" --wait
 xcrun stapler staple "dist/arm64/WeChatTool-Installer.app"
 xcrun stapler validate "dist/arm64/WeChatTool-Installer.app"
@@ -164,9 +164,9 @@ ZIP containing the stapled app and generate a checksum for **that** archive:
 
 ```sh
 ditto -c -k --sequesterRsrc --keepParent "dist/arm64/WeChatTool-Installer.app" \
-  "dist/arm64/WeChatTool-Installer-0.1.1-arm64-notarized.zip"
-shasum -a 256 "dist/arm64/WeChatTool-Installer-0.1.1-arm64-notarized.zip" \
-  > "dist/arm64/WeChatTool-Installer-0.1.1-arm64-notarized.zip.sha256"
+  "dist/arm64/WeChatTool-Installer-0.1.2-arm64-notarized.zip"
+shasum -a 256 "dist/arm64/WeChatTool-Installer-0.1.2-arm64-notarized.zip" \
+  > "dist/arm64/WeChatTool-Installer-0.1.2-arm64-notarized.zip.sha256"
 ```
 
 The embedded build metadata records the original build and says

@@ -12,9 +12,9 @@
 
 ## 使用 Mac 安装器
 
-**[下载 WeChatTool-Installer v0.1.1](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.1/WeChatTool-Installer-0.1.1-universal2.zip)** · [发布说明与校验值](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.1)
+**[下载 WeChatTool-Installer v0.1.2](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.2/WeChatTool-Installer-0.1.2-universal2.zip)** · [发布说明与校验值](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.2)
 
-功能选择和实验性辅助功能支持已加入当前源代码。上方的 v0.1.1 下载仅提供防撤回功能；如需使用新选项，请构建当前版本的安装器。
+v0.1.2 安装器支持选择防撤回、实验性辅助功能支持，或同时安装两项。
 
 同一个通用 ZIP 压缩包支持运行 **macOS 14 或更高版本的 Apple Silicon 和 Intel Mac**。安装器已内置所需组件，无需安装 Python、Xcode 或开发工具。标为 **Source code** 的压缩包仅包含源代码，不包含安装器应用。
 
