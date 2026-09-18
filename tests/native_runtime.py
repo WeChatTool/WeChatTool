@@ -101,15 +101,15 @@ def main() -> None:
             count += 1
 
         check("unmodified predicate", plan, mode="baseline")
-        check("future image patched", plan, wanted=0)
+        check("legacy predicate-only plan safely refused", plan, wanted=1)
         original_launcher = executable.read_bytes()
         try:
             executable.write_bytes(inject_dylib(original_launcher, INSTALL_NAME))
-            check("load-command startup constructor patches future image", plan, wanted=0)
+            check("startup constructor refuses unsafe predicate-only plan", plan, wanted=1)
         finally:
             executable.write_bytes(original_launcher)
         check("already loaded image refused", plan, mode="preloaded")
-        check("second plugin load leaves predicate patched", plan, wanted=0, mode="twice")
+        check("second plugin load leaves classifier intact", plan, wanted=1, mode="twice")
         check("environment disable", plan, env={**os.environ, "WECHATTOOL_DISABLE": "1"})
         disabled = tool_dir / "disabled"
         disabled.touch()
@@ -150,9 +150,9 @@ def main() -> None:
             "instance_id": instance, "source_bundle_id": "com.tencent.xinWeChat",
             "data_isolation": "per-installation",
         }
-        check("isolated installation patches future image", isolated_plan, wanted=0,
+        check("isolated installation refuses unsafe predicate-only hook", isolated_plan, wanted=1,
               bundle_metadata=isolated_metadata)
-        check("isolated copy ignores official share channels", isolated_plan, wanted=0,
+        check("isolated copy ignores official share channels", isolated_plan, wanted=1,
               mode="sharing-filter", bundle_metadata=isolated_metadata)
         check("share isolation remains when recall protection disabled", isolated_plan,
               mode="sharing-filter", bundle_metadata=isolated_metadata,
@@ -195,7 +195,7 @@ def main() -> None:
         unknown_identifier = "local.unrelated.wechat." + instance
         check("reject unrelated bundle with matching plan", {**isolated_plan, "bundle_id": unknown_identifier},
               bundle_metadata={**isolated_metadata, "CFBundleIdentifier": unknown_identifier})
-        check("legacy identity remains accepted after isolated fixtures", plan, wanted=0)
+        check("legacy identity remains accepted after isolated fixtures", plan, wanted=1)
 
         helper = executable.with_name("Helper")
         executable.rename(helper)

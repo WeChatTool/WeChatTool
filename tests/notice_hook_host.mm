@@ -69,7 +69,8 @@ int main(int argc, const char **argv) {
         if (argc != 2) return 2;
         const std::string mode = argv[1];
         const bool notices = mode == "notices";
-        Require(notices || mode == "baseline" || mode == "original", "known test mode");
+        const bool blocked = notices || mode == "silent";
+        Require(blocked || mode == "baseline" || mode == "original", "known test mode");
         [NSUserDefaults.standardUserDefaults setVolatileDomain:@{@"AppleLanguages": @[@"en"]}
                                                       forName:NSArgumentDomain];
         NSString *resources = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Contents/Resources"];
@@ -89,25 +90,20 @@ int main(int argc, const char **argv) {
             0x1f, 0x01, 0x09, 0x6b, 0xe0, 0x17, 0x9f, 0x1a,
             0xc0, 0x03, 0x5f, 0xd6};
         constexpr std::array<uint8_t, 8> jump = {0x50, 0, 0, 0x58, 0, 0x02, 0x1f, 0xd6};
-        constexpr std::array<uint8_t, 4> replacement = {0, 0, 0x80, 0x52};
         constexpr std::array<uint8_t, 4> nop = {0x1f, 0x20, 0x03, 0xd5};
-        constexpr size_t replacementOffset = 12;
 #else
         constexpr std::array<uint8_t, 16> original = {
             0x55, 0x48, 0x89, 0xe5, 0x81, 0x7f, 0x0c, 0x12,
             0x27, 0, 0, 0x0f, 0x94, 0xc0, 0x5d, 0xc3};
         constexpr std::array<uint8_t, 6> jump = {0xff, 0x25, 0, 0, 0, 0};
-        constexpr std::array<uint8_t, 3> replacement = {0x31, 0xc0, 0x90};
         constexpr std::array<uint8_t, 1> nop = {0x90};
-        constexpr size_t replacementOffset = 11;
 #endif
         auto expected = original;
-        if (mode != "original")
-            std::memcpy(expected.data() + replacementOffset, replacement.data(), replacement.size());
+
         Require(std::memcmp(reinterpret_cast<const void *>(predicate), expected.data(), expected.size()) == 0,
-                "predicate uses exact small preservation patch independently of notice detour");
+                "recall classifier stays intact so outgoing recalls can construct their extension");
         const auto *handlerCode = reinterpret_cast<const uint8_t *>(handler);
-        if (notices) {
+        if (blocked) {
             Require(std::memcmp(handlerCode, jump.data(), jump.size()) == 0, "separate handler detour installed");
             uintptr_t callback = 0;
             std::memcpy(&callback, handlerCode + jump.size(), sizeof(callback));
@@ -129,7 +125,7 @@ int main(int argc, const char **argv) {
             std::memcpy(record.data() + 304, &xml, sizeof(xml));
         };
         prepare("123", "Alice recalled a message");
-        Require(predicate(record.data()) == (mode == "original"), "recall preservation result");
+        Require(predicate(record.data()), "outgoing recall extension classification remains true");
         Require(handler(nullptr, record.data()), "handler consumes recall");
         if (notices) {
             const bool chinese = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];
@@ -157,6 +153,8 @@ int main(int argc, const char **argv) {
             prepare("126", "Alice recalled a message");
             Require(handler(nullptr, record.data()) && count() == 3, "mismatched conversation rejected");
             Require(originalCalls() == 0, "refusal paths never call original handler");
+        } else if (blocked) {
+            Require(originalCalls() == 0 && count() == 0, "notice opt-out still blocks destructive receive handler");
         } else {
             Require(originalCalls() == 1 && count() == 0, "fallback retains native handler without emitter");
         }

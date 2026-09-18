@@ -166,28 +166,28 @@ def main() -> None:
             checks += 1
             print(f"PASS {name}", flush=True)
 
-        check("reviewed separate handler emits parsed notices and retains predicate preservation", plan, "notices")
+        check("receive handler preserves messages without breaking outgoing recall classification", plan, "notices")
         unknown = copy.deepcopy(plan)
         unknown["hooks"][0]["notice_adapter"] = "unknown-adapter"
-        check("unknown adapter keeps baseline preservation", unknown, "baseline")
+        check("unknown adapter leaves native classification and handler unchanged", unknown, "baseline")
         missing = copy.deepcopy(plan)
         del missing["hooks"][0]["notice_adapter"]
-        check("missing adapter keeps baseline preservation", missing, "baseline")
+        check("missing adapter leaves native classification and handler unchanged", missing, "baseline")
         changed = copy.deepcopy(plan)
         changed["hooks"][0]["image_sha256"] = "0" * 64
-        check("mismatched image hash keeps baseline preservation", changed, "baseline")
-        check("notice environment opt-out keeps baseline preservation", plan, "baseline",
+        check("mismatched image hash leaves native classification and handler unchanged", changed, "baseline")
+        check("notice opt-out keeps receive protection without changing classification", plan, "silent",
               extra_environment={"WECHATTOOL_NOTICES": "0"})
         for region in ("handler", "insert_notice", "task_slot"):
             bad_hash = copy.deepcopy(adapter)
             bad_hash[region]["sha256"] = "0" * 64
-            check(f"{region} hash mismatch retains original handler and preservation", plan, "baseline", compiled_profile=bad_hash)
+            check(f"{region} hash mismatch refuses hook without changing classification", plan, "baseline", compiled_profile=bad_hash)
         bad_prefix = copy.deepcopy(adapter)
         bad_prefix["handler"]["expected"] = "00" * 32
-        check("handler prefix mismatch retains original handler and preservation", plan, "baseline", compiled_profile=bad_prefix)
+        check("handler prefix mismatch refuses hook without changing classification", plan, "baseline", compiled_profile=bad_prefix)
         malformed = copy.deepcopy(adapter)
         malformed["task_slot"]["size"] = True
-        check("malformed compiled profile retains original handler and preservation", plan, "baseline", compiled_profile=malformed)
+        check("malformed compiled profile refuses hook without changing classification", plan, "baseline", compiled_profile=malformed)
         check("whole-plugin disable leaves original predicate", plan, "original",
               extra_environment={"WECHATTOOL_DISABLE": "1"})
         print(f"{checks} notice hook integration checks passed ({args.arch}; headless hardened fixtures).")

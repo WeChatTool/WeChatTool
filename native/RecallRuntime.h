@@ -18,5 +18,5 @@ void WCTConfigureRecallNotices(WCTRecallEmitter emitter,
                               bool chinese = false) noexcept;
 
 // Consume the original recall on every path, including malformed input and
-// emitter failure. The independent preservation predicate remains separate.
+// emitter failure. The global recall classifier must remain unmodified.
 extern "C" bool WCTHandleRecallMessage(const void *service, const void *message) noexcept;

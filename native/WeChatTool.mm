@@ -554,9 +554,9 @@ static bool NoticeFunction(const mach_header *header, intptr_t slide, NSDictiona
 
 static NSString *TryNoticeHook(const mach_header *header, intptr_t slide, NSDictionary *hook) {
     NSDictionary *adapter = NoticeAdapter(hook);
-    if (!adapter) return nil;
+    if (!adapter) return @"recall-handler-unavailable";
     const char *disabled = getenv("WECHATTOOL_NOTICES");
-    if (disabled && strcmp(disabled, "0") == 0) return nil;
+    const bool noticesEnabled = !(disabled && strcmp(disabled, "0") == 0);
     uintptr_t handler, emitter, taskSlot;
     if (!NoticeFunction(header, slide, hook, adapter[@"handler"], &handler) ||
         !NoticeFunction(header, slide, hook, adapter[@"insert_notice"], &emitter) ||
@@ -565,8 +565,9 @@ static NSString *TryNoticeHook(const mach_header *header, intptr_t slide, NSDict
     const bool chinese = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];
     // The intercepted handler already executes inside a native WeChat task.
     // Never call its yielding message services from a Cocoa/GCD callback.
-    WCTConfigureRecallNotices(reinterpret_cast<WCTRecallEmitter>(emitter),
-                             reinterpret_cast<WCTTaskSlotGetter>(taskSlot), chinese);
+    if (noticesEnabled)
+        WCTConfigureRecallNotices(reinterpret_cast<WCTRecallEmitter>(emitter),
+                                 reinterpret_cast<WCTTaskSlotGetter>(taskSlot), chinese);
     const uintptr_t callback = reinterpret_cast<uintptr_t>(&WCTHandleRecallMessage);
 #if defined(__arm64__)
     // LDR X16, literal; BR X16; 64-bit callback. No displaced code is executed.
@@ -673,18 +674,19 @@ static void ImageAdded(const mach_header *header, intptr_t slide) {
                 Log(runtime->log, @"invalid-slide", hook[@"id"]);
                 continue;
             }
-            NSString *status = Patch(address, expected, [hook[@"patch_offset"] unsignedIntegerValue],
-                                     Hex(hook[@"replacement"]));
+            // The global classifier also constructs OUTGOING recall extensions.
+            // Forcing it false makes own-message Recall dereference a null extension.
+            // Preserve classification and intercept only the reviewed receive handler.
+            // Never fall back to the unsafe predicate patch if its profile is absent.
+            NSString *status = AccessibilityHook(hook)
+                ? Patch(address, expected, [hook[@"patch_offset"] unsignedIntegerValue], Hex(hook[@"replacement"]))
+                : TryNoticeHook(header, slide, hook);
             const bool active = [status isEqualToString:@"active"] || [status isEqualToString:@"already-active"];
             if (active)
                 runtime->applied++;
             Log(runtime->log, status, hook[@"id"]);
-            if (active && !AccessibilityHook(hook)) {
-                NSString *noticeStatus = TryNoticeHook(header, slide, hook);
-                if ([noticeStatus isEqualToString:@"active"] || [noticeStatus isEqualToString:@"already-active"])
-                    Log(runtime->log, @"recall-notices-active", hook[@"id"]);
-                else if (noticeStatus) Log(runtime->log, noticeStatus, hook[@"id"]);
-            }
+            if (active && !AccessibilityHook(hook))
+                Log(runtime->log, @"recall-handler-active", hook[@"id"]);
         }
         pthread_mutex_unlock(&runtime->mutex);
     }

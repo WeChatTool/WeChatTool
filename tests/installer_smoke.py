@@ -20,9 +20,14 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import sys
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from wechattool.analyze import analyze
+from wechattool.prepare import prepare
 INSTALL_NAME = "@executable_path/../Resources/WeChatTool/WeChatTool.dylib"
 SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -167,14 +172,22 @@ def main() -> None:
         original = snapshot(source)
         passed("disposable original predicate returns true")
 
-        report = json.loads(standalone("analyze", "--app", source, "--json").stdout)
-        require(report["status"] == "structurally-compatible", f"Unexpected analysis: {report}")
+        report = json.loads(standalone("analyze", "--app", source, "--json", expected=2).stdout)
+        require(report["status"] == "unsupported" and not report["hooks"],
+                "Frozen backend must refuse an unreviewed receive handler")
+        require(any("no reviewed receive-handler" in problem for problem in report["problems"]),
+                "Expected receive-handler profile refusal")
+        # Production frozen builds deliberately contain no synthetic profile.
+        # Test staging with an explicitly mocked source-side profile selector,
+        # while still exercising the actual packaged plugin and signing paths.
+        with patch("wechattool.analyze.notice_adapter", return_value="synthetic-smoke-handler"):
+            report = analyze(source)
         require(report["architectures"] == [args.arch], f"Unexpected architectures: {report}")
         require(report["features"] == ["recall"], "Default feature selection changed")
         require(len(report["hooks"]) == 1, f"Expected one synthetic predicate: {report}")
         require(report["hooks"][0]["image"] == "Contents/Resources/wechat.dylib", "Wrong core image")
         require(snapshot(source) == original, "Read-only analysis modified the source app")
-        passed("frozen backend analyzes from unrelated cwd with sanitized environment")
+        passed("frozen backend refuses an unreviewed handler from unrelated cwd")
 
         for features in (("accessibility",), ("recall", "accessibility")):
             unsupported = json.loads(standalone(
@@ -190,9 +203,11 @@ def main() -> None:
         passed("frozen backend preserves choices and refuses unsupported accessibility before writes")
 
         prepared = workspace / "Prepared Synthetic WeChat.app"
-        result = json.loads(standalone(
-            "prepare", "--app", source, "--output", prepared, "--plugin", plugin,
-        ).stdout)
+        refusal = standalone("prepare", "--app", source, "--output", prepared, "--plugin", plugin, expected=1)
+        require("No safe plan" in refusal.stderr and not prepared.exists(),
+                "Frozen preparation must refuse an unreviewed handler without writing output")
+        with patch("wechattool.analyze.notice_adapter", return_value="synthetic-smoke-handler"):
+            result = prepare(source, prepared, plugin)
         require(result["status"] == "prepared-and-signature-verified", f"Unexpected prepare result: {result}")
         require(result["features"] == ["recall"], "Prepared result must confirm the installed features")
         require(Path(result["destination"]) == prepared, "Backend published the wrong destination")
@@ -213,7 +228,7 @@ def main() -> None:
         run("/usr/bin/codesign", "--verify", "--deep", "--strict", prepared)
         run("/usr/bin/codesign", "--verify", "--strict", installed_plugin)
         require(snapshot(source) == original, "Preparation modified the source app")
-        passed("standalone preparation produces a signed copy and preserves original hashes")
+        passed("source staging with packaged plugin produces a signed isolated copy")
 
         require(copied_info["CFBundleName"] == copied_info["CFBundleDisplayName"] == prepared.stem,
                 "Base bundle metadata does not preserve the chosen installation name")
@@ -273,8 +288,8 @@ int main(int argc, const char *argv[]) {
         dependencies = run("/usr/bin/xcrun", "otool", "-L", prepared_launcher).stdout
         require(any(line.strip().startswith(INSTALL_NAME + " ") for line in dependencies.splitlines()),
                 f"Prepared launcher is missing its plugin load command:\n{dependencies}")
-        run(prepared_launcher, "normal", "0", cwd=unrelated, env=environment)
-        passed("prepared synthetic host loads the plugin and disables the predicate")
+        run(prepared_launcher, "normal", "1", cwd=unrelated, env=environment)
+        passed("packaged plugin refuses unreviewed handler and keeps outgoing classifier intact")
 
         prepared_snapshot = snapshot(prepared)
         refusal = standalone("prepare", "--app", source, "--output", prepared, "--plugin", plugin, expected=1)

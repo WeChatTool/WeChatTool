@@ -12,9 +12,9 @@
 
 ## 使用 Mac 安装器
 
-**[下载 WeChatTool-Installer v0.1.2](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.2/WeChatTool-Installer-0.1.2-universal2.zip)** · [发布说明与校验值](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.2)
+**[下载 WeChatTool-Installer v0.1.3](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.3/WeChatTool-Installer-0.1.3-universal2.zip)** · [发布说明与校验值](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.3)
 
-v0.1.2 安装器支持选择防撤回、实验性辅助功能支持，或同时安装两项。
+v0.1.3 修复了撤回自己发送的消息时崩溃的问题。安装器支持选择防撤回、实验性辅助功能支持，或同时安装两项。
 
 同一个通用 ZIP 压缩包支持运行 **macOS 14 或更高版本的 Apple Silicon 和 Intel Mac**。安装器已内置所需组件，无需安装 Python、Xcode 或开发工具。标为 **Source code** 的压缩包仅包含源代码，不包含安装器应用。
 

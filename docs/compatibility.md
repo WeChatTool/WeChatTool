@@ -8,7 +8,7 @@ The analyzer reads the app's Mach-O files and checks:
 
 1. The source is the official `com.tencent.xinWeChat` bundle and its executable is `WeChat`. Prepared installations are not accepted as source apps.
 2. Each launcher architecture has the required supported targets for every selected feature across the candidate core images.
-3. For recall protection, the complete predicate matches a known instruction sequence in executable `__TEXT,__text`, at an `LC_FUNCTION_STARTS` boundary. Accessibility support uses exact-build profiles and validates its required instruction sequences separately.
+3. For recall protection, the complete predicate matches a known instruction sequence in executable `__TEXT,__text`, at an `LC_FUNCTION_STARTS` boundary. A reviewed receive-handler profile must also match the exact version, build, architecture, UUID and image hash. The classifier is used only for identification and remains unmodified. Accessibility support uses exact-build profiles and validates its required instruction sequences separately.
 4. The image has a UUID. The output records that UUID, architecture, address, exact bytes, bundle version/build, and SHA-256 of the source image.
 
 The default candidate paths are `Contents/Resources/wechat.dylib` and `Contents/Frameworks/wechat.dylib`. The Resources image contains the implementation in the inspected 4.1.15 installation; the similarly named Frameworks image is a stub. `--image` accepts an explicit bundle-relative path for a changed layout. Paths must remain within the bundle. Hooks in the main executable are rejected because that image is already loaded when the plugin initializes.
@@ -44,35 +44,29 @@ The interface patches retain the earlier null-object checks, lookup logic, objec
 
 Both function hashes and the complete on-disk image hash are checked before either accessibility patch is written. The allowlist is compiled into the plugin, so editing an app plan cannot introduce a new patch. Native tests use harmless fixture libraries to verify each feature independently, both together, the retained null guard, rejected mismatches, startup opt-outs, and refusal of already-loaded images on both architectures. These tests do not exercise a live WeChat session.
 
-## Inspected recall implementation
+## Recall protection and own-message recalls
 
-WeChat **4.1.15 / 270099** was inspected read-only. Both slices contain one matching predicate at a recorded function start:
+Recall protection uses a reviewed incoming recall-handler detour for WeChat
+**4.1.15 / 270099** on arm64 and x86_64. The profile binds the version, build,
+image UUID and SHA-256, and the runtime checks full function hashes before
+installing the detour. The original core file remains unchanged on disk.
 
-| Architecture | Predicate virtual address | Modified instruction | Image UUID |
-| --- | --- | --- | --- |
-| arm64 | `0x48db554` | `0x48db560` | `ED4DCBD2-4896-3A6D-8A70-7D8D88F74B0D` |
-| x86_64 | `0x5037860` | `0x503786b` | `97E21436-ABDA-3B79-BEC0-EF2653C6B423` |
+The global recall classifier must remain intact. The older patch forced it to
+return false, which also suppressed creation of an outgoing recall extension.
+A live arm64 reproduction of Recall on a self-chat message stopped at
+`0x340ab18` in the core: a write to `[x0 + 0x1c8]` with `x0 == 0`.
+The corrected plugin leaves classification unchanged and intercepts the
+incoming replacement handler instead. Repeating the same live self-chat
+Recall completed without a crash and retained the message with a local notice.
+This does not establish every message type, group or synchronization path.
 
-Core: `Contents/Resources/wechat.dylib`.
+Unknown or mismatched receive-handler profiles are refused; there is no fallback
+to the unsafe global classifier patch. `WECHATTOOL_NOTICES=0` suppresses the
+additional local notice while keeping the receive-handler interception active.
 
-SHA-256: `65117e24ca1a8b66aff122db2e86dbd544a8dc98064526440d1ffba690fd9a69`.
-
-These addresses document the inspected file; the analyzer searches the instructions and does not use these addresses as fallbacks. Live recall prevention has been reported working on this build. This is not a verification of every architecture, message type, or synchronization path.
-
-## Recall instruction recipes
-
-Both supported predicates return whether a 32-bit field at message offset `0x0c` equals `10002` (`0x2712`). The preservation patch changes only the boolean-result instruction:
-
-| Architecture | Exact original predicate bytes | Offset within predicate | Replacement bytes |
-| --- | --- | --- | --- |
-| arm64 | `080c40b949e284521f01096be0179f1ac0035fd6` | `12` | `00008052` |
-| x86_64 | `554889e5817f0c122700000f94c05dc3` | `11` | `31c090` |
-
-On arm64, `CSET W0, EQ` becomes `MOV W0, #0`. On Intel, `SETE AL` becomes `XOR EAX, EAX; NOP`. This patch keeps original loads, comparisons, function boundaries, and return instructions intact.
-
-Read-only inspection of the four direct arm64 callers in build 270099 shows that this predicate selects system/revoke message extension construction and access. This supports the intended interception point but does not establish coverage of every deletion or synchronization path.
-
-The ARM instruction write is aligned and its instruction cache is invalidated. The Intel replacement spans multiple instructions and is not atomic. On both architectures, changing page protection temporarily removes execution permission, so even an atomic ARM store is unsuitable for patching a core that may already be executing.
+The analyzer still recognizes the original classifier instructions as an
+identity check. Existing plan fields describing the old predicate recipe remain
+readable for compatibility, but the runtime never writes that recipe.
 
 The plugin records the images already loaded when it initializes and refuses to patch any of those images (`late-image-refused`). It patches a matching newly loaded image only from the dyld image-add callback, before that image's initializers run. This is not a hot-patching mechanism. An app version that loads its core before the plugin initializes cannot activate through this path, even if static analysis succeeds. Disabling or enabling the plugin takes effect on the next process launch.
 
@@ -80,7 +74,7 @@ This also depends on the core being visible to dyld's image callbacks. A custom 
 
 ## Extending compatibility
 
-A future build with an unchanged, unique recall predicate may pass recall-only structural analysis without a new fixed-offset profile. Accessibility support requires a separately verified profile for the exact build and architecture. Test real behavior before relying on either feature. Missing or ambiguous matches require investigation; there is no nearest-version address fallback.
+A future build requires a reviewed receive-handler profile even if its global recall classifier is unchanged. Accessibility support requires a separately verified profile for the exact build and architecture. Test real behavior before relying on either feature. Missing or ambiguous matches require investigation; there is no nearest-version address fallback.
 
 For a new recipe:
 

@@ -168,6 +168,9 @@ def analyze(app: Path, image_relative: str | None = None, *, features: list[str]
             if adapter:
                 hook["notice_adapter"] = adapter
                 notice_arches.append(hook["arch"])
+            else:
+                problems.append(f"{hook['arch']} recall: no reviewed receive-handler profile; "
+                                "global recall-classifier patches are unsafe for own-message recall")
     return {
         "schema_version": 1, "bundle_id": info["CFBundleIdentifier"],
         "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],

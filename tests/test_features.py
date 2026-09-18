@@ -145,6 +145,11 @@ class AccessibilityProfileTests(unittest.TestCase):
 
 class FeatureBundleTests(unittest.TestCase):
     def setUp(self):
+        # Synthetic images have no production handler identity; isolate the
+        # bundle tests from profile selection, covered separately below.
+        adapter = patch("wechattool.analyze.notice_adapter", return_value="fixture-handler")
+        adapter.start()
+        self.addCleanup(adapter.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

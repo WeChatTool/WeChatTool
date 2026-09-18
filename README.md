@@ -12,9 +12,9 @@ Independent installations require installer **v0.1.1 or later**.
 
 ## Install with the Mac app
 
-**[Download WeChatTool-Installer v0.1.2](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.2/WeChatTool-Installer-0.1.2-universal2.zip)** · [Release notes and checksum](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.2)
+**[Download WeChatTool-Installer v0.1.3](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.3/WeChatTool-Installer-0.1.3-universal2.zip)** · [Release notes and checksum](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.3)
 
-Installer v0.1.2 lets you choose recall protection, experimental accessibility support, or both.
+v0.1.3 fixes a crash when recalling your own message. The installer lets you choose recall protection, experimental accessibility support, or both.
 
 One Universal ZIP supports **Apple Silicon and Intel Macs running macOS 14 or later**. The installer includes everything it needs; you do not need Python, Xcode, or developer tools. The **Source code** archives contain code only, not the installer app.
 

@@ -65,6 +65,11 @@ class AnalyzerTests(unittest.TestCase):
 
 class BundleTests(unittest.TestCase):
     def setUp(self):
+        # Synthetic images have no production handler identity; isolate the
+        # bundle tests from profile selection, covered separately below.
+        adapter = patch("wechattool.analyze.notice_adapter", return_value="fixture-handler")
+        adapter.start()
+        self.addCleanup(adapter.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -80,7 +85,7 @@ class BundleTests(unittest.TestCase):
         (self.app / "Contents/MacOS/WeChat").write_bytes(make_thin(text=b"\xc0\x03\x5f\xd6"))
         (self.app / "Contents/Resources/wechat.dylib").write_bytes(make_thin(text=ARM))
 
-    def test_future_build_uses_capability_not_version_number(self):
+    def test_reviewed_handler_profile_allows_structural_plan(self):
         report = analyze(self.app)
         self.assertEqual(report["status"], "structurally-compatible")
         self.assertIn("static-only", report["validation"])
@@ -89,6 +94,13 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(len(report["images"][0]["sha256"]), 64)
         # Plan has no absolute user path or message content.
         self.assertNotIn(str(self.root), json.dumps(report))
+
+    def test_predicate_match_without_reviewed_handler_is_unsupported(self):
+        with patch("wechattool.analyze.notice_adapter", return_value=None):
+            report = analyze(self.app)
+        self.assertEqual(report["status"], "unsupported")
+        self.assertEqual(report["hooks"], [])
+        self.assertIn("no reviewed receive-handler", "; ".join(report["problems"]))
 
     def test_duplicate_across_images_refused(self):
         (self.app / "Contents/Frameworks").mkdir()
