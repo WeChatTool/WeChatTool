@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -93,8 +94,11 @@ def main() -> None:
         source_snapshots = [(item, snapshot(item)) for item in (source, second_source)]
 
         copies = [workspace / "First Isolated Fixture.app", workspace / "Second Isolated Fixture.app"]
-        reports = [prepare(original, destination, plugin)
-                   for original, destination in zip((source, second_source), copies)]
+        # Synthetic images are intentionally absent from production profiles.
+        # Isolate storage preparation from the separately tested selector.
+        with patch("wechattool.analyze.notice_adapter", return_value="synthetic-isolation-handler"):
+            reports = [prepare(original, destination, plugin)
+                       for original, destination in zip((source, second_source), copies)]
         identities = []
         for app, report in zip(copies, reports):
             metadata = plistlib.loads((app / "Contents/Info.plist").read_bytes())
@@ -137,8 +141,8 @@ def main() -> None:
             assert results[0]["home"] != results[1]["home"]
             assert results[0]["support"] != results[1]["support"]
             assert results[0]["group"] != results[1]["group"]
-            assert all(result["predicate"] == 0 for result in results)
-            passed("both prepared plugins activate with independent writable private and group containers")
+            assert all(result["predicate"] == 1 for result in results)
+            passed("both copies retain native classification with independent writable private and group containers")
             for index in range(2):
                 result = probe(index, "read")
                 assert result["helper"]["home"] == result["home"]

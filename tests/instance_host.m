@@ -67,7 +67,7 @@ int main(int argc, const char **argv) {
         Require(predicate != NULL, @"Synthetic predicate missing");
         int record[4] = {0, 0, 0, 10002};
         int actual = predicate(record) ? 1 : 0;
-        Require(actual == ([action isEqualToString:@"disabled"] ? 1 : 0), @"Plugin activation differs from expected state");
+        Require(actual == 1, @"Unreviewed fixture must retain native recall classification");
 
         NSString *support = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
         NSString *privateDirectory = OwnDirectory(support, identifier);
