@@ -1,23 +1,50 @@
 # Compatibility and adaptation
 
-WeChat exposes no stable anti-recall plugin interface. This project uses a narrow native-code modification, with separate checks for structural compatibility and real message behavior.
+WeChat exposes no stable plugin interface for these changes. This project uses narrow native-code modifications, with separate checks for structural compatibility and live behavior. Each prepared app selects recall protection, experimental accessibility support, or both. The default remains recall protection only.
 
 ## What is verified
 
 The analyzer reads the app's Mach-O files and checks:
 
 1. The source is the official `com.tencent.xinWeChat` bundle and its executable is `WeChat`. Prepared installations are not accepted as source apps.
-2. Each launcher architecture has exactly one supported predicate across the candidate core images.
-3. The complete predicate matches a known instruction sequence in executable `__TEXT,__text`, at an `LC_FUNCTION_STARTS` boundary.
+2. Each launcher architecture has the required supported targets for every selected feature across the candidate core images.
+3. For recall protection, the complete predicate matches a known instruction sequence in executable `__TEXT,__text`, at an `LC_FUNCTION_STARTS` boundary. Accessibility support uses exact-build profiles and validates its required instruction sequences separately.
 4. The image has a UUID. The output records that UUID, architecture, address, exact bytes, bundle version/build, and SHA-256 of the source image.
 
 The default candidate paths are `Contents/Resources/wechat.dylib` and `Contents/Frameworks/wechat.dylib`. The Resources image contains the implementation in the inspected 4.1.15 installation; the similarly named Frameworks image is a stub. `--image` accepts an explicit bundle-relative path for a changed layout. Paths must remain within the bundle. Hooks in the main executable are rejected because that image is already loaded when the plugin initializes.
 
 Preparation re-analyzes the staged copy to catch source changes during copying. It does not publish the output unless the copy can be signed and verified. Runtime checks restrict the plan to the current app version/build, the intended loaded image and UUID, and the supported instruction recipe with its expected bytes. A mismatch leaves the affected image unmodified.
 
-These checks prevent reusing a stale offset or selecting an ambiguous signature. They cannot prove that WeChat's surrounding recall workflow has retained its meaning. The reported status `structurally-compatible` explicitly does not mean live behavior has passed testing.
+These checks prevent reusing a stale offset or selecting an ambiguous signature. They cannot prove that WeChat's surrounding workflows have retained their meaning. The reported status `structurally-compatible` explicitly does not mean live behavior has passed testing. Analysis and preparation reports include the selected `features`, which the installer checks against the requested selection.
 
-## Inspected installation
+## Feature selection
+
+The installer has independent **Recall protection** and **Accessibility support (experimental)** checkboxes. Recall protection is on by default; accessibility support is off. At least one must be selected. Changing a selection clears the prior compatibility result and completed-copy controls, then checks the source again. Each newly prepared copy records only its selected features.
+
+The command-line equivalent is `--features recall`, `--features accessibility`, or `--features recall accessibility` on both `analyze` and `prepare`. Omitting the option selects recall protection. A requested feature that is unsupported for any architecture makes the full request unsupported; there is no silent fallback to another feature.
+
+## Experimental accessibility support
+
+The accessibility profiles cover the inspected **4.1.15 / 270099** core on arm64 and x86_64. They keep widget accessibility interfaces available and allow the custom accessibility actions that the core otherwise limits after mouse input. The runtime validates the original build, image identity, and expected bytes before applying either change. This is an optional local UI automation feature, not a login or session-restoration feature.
+
+Static tracing found a restriction-configured accessibility gate and a separate action predicate in the original WeChat core. It did not establish that either causes the account-security logout warning. This feature does not disable server-side restrictions, prevent “For account security, log in again,” or replace the automation tool's macOS accessibility permission. Live automation behavior has not yet been verified.
+
+The changes apply only in the prepared app's process memory. The official source app is unchanged. To remove this feature, create a new copy with recall protection alone; the startup disable switch below temporarily disables all selected patches for one launch.
+
+The reviewed [accessibility profiles](../wechattool/accessibility_profiles.json) contain the complete original functions and their hashes. Addresses below are unslid virtual addresses for this build, not file offsets:
+
+| Architecture | Function | Start | Patch offset | Change |
+| --- | --- | --- | --- | --- |
+| arm64 | Interface lookup | `0x6ad7210` | `48` | Replace the enabled-flag `CBZ` with a `NOP`. |
+| x86_64 | Interface lookup | `0x744e980` | `39` | Replace the enabled-flag `JE` with six `NOP` instructions. |
+| arm64 | Action permission | `0x1fc894` | `0` | Return true with `MOV W0, #1; RET`. |
+| x86_64 | Action permission | `0x236210` | `0` | Return true with `MOV EAX, 1; RET; NOP`. |
+
+The interface patches retain the earlier null-object checks, lookup logic, object lifetime handling, and return paths. The action replacements return before any original stack or callee-saved-register changes. They bypass the local click latch and time check for this predicate. Neither patch changes the restriction configuration, persisted key, state reporting, or logout code.
+
+Both function hashes and the complete on-disk image hash are checked before either accessibility patch is written. The allowlist is compiled into the plugin, so editing an app plan cannot introduce a new patch. Native tests use harmless fixture libraries to verify each feature independently, both together, the retained null guard, rejected mismatches, startup opt-outs, and refusal of already-loaded images on both architectures. These tests do not exercise a live WeChat session.
+
+## Inspected recall implementation
 
 WeChat **4.1.15 / 270099** was inspected read-only. Both slices contain one matching predicate at a recorded function start:
 
@@ -32,7 +59,7 @@ SHA-256: `65117e24ca1a8b66aff122db2e86dbd544a8dc98064526440d1ffba690fd9a69`.
 
 These addresses document the inspected file; the analyzer searches the instructions and does not use these addresses as fallbacks. Live recall prevention has been reported working on this build. This is not a verification of every architecture, message type, or synchronization path.
 
-## Instruction recipes
+## Recall instruction recipes
 
 Both supported predicates return whether a 32-bit field at message offset `0x0c` equals `10002` (`0x2712`). The preservation patch changes only the boolean-result instruction:
 
@@ -53,7 +80,7 @@ This also depends on the core being visible to dyld's image callbacks. A custom 
 
 ## Extending compatibility
 
-A future build with an unchanged, unique predicate may pass structural analysis without a new fixed-offset profile. Test its real behavior before relying on it. Missing or ambiguous matches require investigation; there is no nearest-version address fallback.
+A future build with an unchanged, unique recall predicate may pass recall-only structural analysis without a new fixed-offset profile. Accessibility support requires a separately verified profile for the exact build and architecture. Test real behavior before relying on either feature. Missing or ambiguous matches require investigation; there is no nearest-version address fallback.
 
 For a new recipe:
 
@@ -73,7 +100,7 @@ Each preparation allocates a random 32-character lowercase hexadecimal instance 
 
 The inspected native data-path code derives Documents, Application Support, and Caches from the main bundle’s container identity. Its application group derives from `TeamIdentifier + CFBundleIdentifier`. Preparation updates the corresponding signing entitlements and removes inherited access to the original application group. Native process and account file locks remain in place, scoped under each installation’s app-data directory. No process-count or account-lock bypass is installed. Distinct installations can run together; the GUI activates an already-running destination installation instead of requesting another instance of it.
 
-The Share Sheet extension is omitted because its routing is tied to the official app. In isolated copies, the runtime also suppresses registration for the official Share Sheet notification channels, including when `WECHATTOOL_DISABLE=1` disables recall protection. FileProvider is retained with a distinct extension identity and the new host’s document group and permissions. Inherited helpers keep the host’s sandbox; helpers with unhandled independent storage grants are refused. Prepared copies do not register the official app’s URL schemes.
+The Share Sheet extension is omitted because its routing is tied to the official app. In isolated copies, the runtime also suppresses registration for the official Share Sheet notification channels, including when `WECHATTOOL_DISABLE=1` disables the selected feature patches. FileProvider is retained with a distinct extension identity and the new host’s document group and permissions. Inherited helpers keep the host’s sandbox; helpers with unhandled independent storage grants are refused. Prepared copies do not register the official app’s URL schemes.
 
 Synthetic sandbox tests on Apple Silicon and Intel through Rosetta verify independent private and group storage, persisted preferences, inherited helper behavior, concurrent processes, and duplicate-process lock exclusion. Real WeChat copies have passed preparation and signature checks. Simultaneous login to real accounts has not been exercised; fixture results and static inspection do not establish complete live behavior.
 
@@ -87,7 +114,7 @@ Preparation disables automatic update checks through the copied app’s updater 
 
 ## Diagnostics and disabling
 
-The plugin reports compatibility and patch status through macOS unified logging, without message content or account identifiers. A successful status reports that the instruction change was applied; it does not certify actual recall preservation.
+The plugin reports compatibility and patch status through macOS unified logging, without message content or account identifiers. A successful status reports that the instruction changes were applied; it does not certify actual recall preservation or successful UI automation.
 
 Start this command before launching the copied app:
 

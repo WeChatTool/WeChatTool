@@ -97,6 +97,8 @@ def main() -> None:
     parser.add_argument("--minimum-macos", default="11.0",
                         help="GUI deployment target; raised automatically to the bundled runtime's minimum")
     parser.add_argument("--identity", help="Developer ID Application signing identity; default is local ad-hoc signing")
+    parser.add_argument("--output-dir", type=Path,
+                        help="Output directory (default: dist/<arch>); existing artifacts are never overwritten")
     parser.add_argument("--runtime-license", type=Path, action="append", default=[],
                         help="Additional license/notice for a dependency in the build Python; repeat as needed")
     args = parser.parse_args()
@@ -113,7 +115,7 @@ def main() -> None:
     architectures = {"arm64", "x86_64"} if args.arch == "universal2" else {args.arch}
     build = ROOT / "build"
     build.mkdir(exist_ok=True)
-    output = ROOT / "dist" / args.arch
+    output = args.output_dir.expanduser().resolve() if args.output_dir else ROOT / "dist" / args.arch
     output.mkdir(parents=True, exist_ok=True)
     final = output / "WeChatTool-Installer.app"
     archive = output / f"WeChatTool-Installer-{__version__}-{args.arch}.zip"
@@ -130,6 +132,7 @@ def main() -> None:
                   "--name", "wechattool-backend", "--target-arch", args.arch,
                   "--paths", str(ROOT), "--add-data", f"{ROOT / 'wechattool/profiles.json'}:wechattool",
                   "--add-data", f"{ROOT / 'wechattool/notice_profiles.json'}:wechattool",
+                  "--add-data", f"{ROOT / 'wechattool/accessibility_profiles.json'}:wechattool",
                   "--distpath", str(scratch / "frozen"), "--workpath", str(scratch / "work"),
                   "--specpath", str(scratch)]
         # The backend needs no networking or optional archive formats. Avoid

@@ -10,6 +10,7 @@ task_build_dir="$(mktemp -d "${TMPDIR:-/tmp}/wechattool-build.XXXXXX")"
 trap 'rm -rf "$task_build_dir"' EXIT
 
 "${PYTHON:-python3}" "$task_root/scripts/compile-notice-profiles.py" "$task_build_dir/NoticeProfiles.inc"
+"${PYTHON:-python3}" "$task_root/scripts/compile-accessibility-profiles.py" "$task_build_dir/AccessibilityProfiles.inc"
 
 for architecture in arm64 x86_64; do
     xcrun --sdk macosx clang++ -arch "$architecture" -mmacosx-version-min=11.0 \

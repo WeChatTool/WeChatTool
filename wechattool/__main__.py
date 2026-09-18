@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .analyze import CompatibilityError, analyze
+from .features import FEATURES
 from .macho import MachOError
 from .prepare import prepare
 
@@ -23,28 +24,34 @@ def main(argv: list[str] | None = None) -> int:
     make.add_argument("--image", help="Bundle-relative core path, for future layouts.")
     make.add_argument("--output", required=True, type=Path, help="A new .app path; existing paths are never overwritten.")
     make.add_argument("--plugin", type=Path, default=Path(__file__).resolve().parent.parent / "build/WeChatTool.dylib")
+    for command in (inspect, make):
+        command.add_argument("--features", nargs="+", choices=FEATURES, default=["recall"],
+                             help="Features to install: recall, accessibility, or both (default: recall).")
     args = parser.parse_args(argv)
     try:
         if args.command == "analyze":
-            report = analyze(args.app, args.image)
+            report = analyze(args.app, args.image, features=args.features)
             if args.json:
                 print(json.dumps(report, indent=2))
             else:
                 print(f"WeChat {report['version']} ({report['build']}): {report['status']}")
+                print("Selected features: " + ", ".join(report["features"]))
                 for hook in report["hooks"]:
                     print(f"  {hook['arch']}: {hook['image']} @ 0x{hook['address']:x} ({hook['id']})")
                 for problem in report["problems"]:
                     print(f"  {problem}")
                 notices = report["recall_notices"]
-                if notices["architectures"]:
+                if "recall" not in report["features"]:
+                    pass
+                elif notices["architectures"]:
                     print("  Recall notices: available for " + ", ".join(notices["architectures"]))
                 else:
                     print("  Recall notices: unavailable for this build; preservation support is unchanged.")
-                print("Static checks only. Confirm preservation with a live revoke test before relying on it.")
+                print("Static checks only. Validate the selected features in the prepared copy before relying on them.")
             return 0 if report["status"] == "structurally-compatible" else 2
         if sys.platform != "darwin":
             raise CompatibilityError("Preparing app copies requires macOS.")
-        report = prepare(args.app, args.output, args.plugin, image_relative=args.image)
+        report = prepare(args.app, args.output, args.plugin, image_relative=args.image, features=args.features)
         print(json.dumps(report, indent=2))
         return 0
     except (CompatibilityError, MachOError, OSError, ValueError, subprocess.CalledProcessError) as error:

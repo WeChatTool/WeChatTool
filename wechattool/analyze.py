@@ -7,6 +7,8 @@ import json
 import plistlib
 from pathlib import Path
 
+from .accessibility import profiles as accessibility_profiles, scan_accessibility
+from .features import selected_features
 from .macho import MachO, MachOError
 from .notices import notice_adapter
 
@@ -102,7 +104,11 @@ def scan_image(data: bytes, rules: list[dict]) -> tuple[list[dict], list[dict]]:
     return hooks, diagnostics
 
 
-def analyze(app: Path, image_relative: str | None = None) -> dict:
+def analyze(app: Path, image_relative: str | None = None, *, features: list[str] | None = None) -> dict:
+    try:
+        features = selected_features(features)
+    except ValueError as error:
+        raise CompatibilityError(str(error)) from error
     app = app.resolve(strict=True)
     info = app_info(app)
     if (app / "Contents/Resources/WeChatTool/plan.json").exists():
@@ -124,17 +130,31 @@ def analyze(app: Path, image_relative: str | None = None) -> dict:
         if path == launcher_path:
             raise CompatibilityError("Main-executable hooks are unsupported: the runtime only patches newly loaded images.")
         data = path.read_bytes()
-        found, details = scan_image(data, profiles())
-        diagnostics.extend({"image": relative, **detail} for detail in details)
-        if found:
-            digest = hashlib.sha256(data).hexdigest()
+        digest = hashlib.sha256(data).hexdigest()
+        image_hooks = []
+        for feature in features:
+            if feature == "recall":
+                found, details = scan_image(data, profiles())
+            else:
+                try:
+                    found, details = scan_accessibility(data, accessibility_profiles(),
+                                                       info["CFBundleShortVersionString"],
+                                                       info["CFBundleVersion"], digest)
+                except ValueError as error:
+                    raise CompatibilityError(str(error)) from error
+            diagnostics.extend({"image": relative, "feature": feature, **detail} for detail in details)
+            image_hooks.extend({"feature": feature, **hook} for hook in found)
+        if image_hooks:
             images.append({"path": relative, "sha256": digest})
-            hooks.extend({"image": relative, "image_sha256": digest, **hook} for hook in found)
+            hooks.extend({"image": relative, "image_sha256": digest, **hook} for hook in image_hooks)
     problems = []
-    for arch in arches:
-        matching = [hook for hook in hooks if hook["arch"] == arch]
-        if len(matching) != 1:
-            problems.append(f"{arch}: expected one unique predicate across images, found {len(matching)}")
+    for feature in features:
+        required = 1 if feature == "recall" else 2
+        for arch in arches:
+            matching = [hook for hook in hooks if hook["arch"] == arch and hook["feature"] == feature]
+            if len(matching) != required:
+                problems.append(f"{arch} {feature}: expected {required} unique hook(s) across images, "
+                                f"found {len(matching)}")
     if any(detail["status"] == "ambiguous" for detail in diagnostics):
         problems.append("At least one image has ambiguous matches; refusing all hooks.")
     if not arches:
@@ -142,6 +162,8 @@ def analyze(app: Path, image_relative: str | None = None) -> dict:
     notice_arches = []
     if not problems:
         for hook in hooks:
+            if hook["feature"] != "recall":
+                continue
             adapter = notice_adapter(hook, info["CFBundleShortVersionString"], info["CFBundleVersion"])
             if adapter:
                 hook["notice_adapter"] = adapter
@@ -149,11 +171,12 @@ def analyze(app: Path, image_relative: str | None = None) -> dict:
     return {
         "schema_version": 1, "bundle_id": info["CFBundleIdentifier"],
         "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
-        "executable": "WeChat", "architectures": arches,
+        "executable": "WeChat", "architectures": arches, "features": features,
         "status": "structurally-compatible" if not problems else "unsupported",
-        "validation": "static-only; live message revoke behavior has not been verified",
+        "validation": "static-only; selected features require live validation",
         "runtime_requirement": "target image must load after plugin initialization",
-        "recall_notices": {"status": "available" if notice_arches else "unavailable",
+        "recall_notices": {"status": ("not-selected" if "recall" not in features else
+                                      "available" if notice_arches else "unavailable"),
                            "architectures": notice_arches,
                            "validation": "reviewed metadata layout; live recall notice test required"},
         "hooks": hooks if not problems else [], "images": images,

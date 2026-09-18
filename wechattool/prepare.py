@@ -128,7 +128,8 @@ def isolate_helpers(app: Path, identity: InstanceIdentity, scratch: Path) -> lis
     return omitted
 
 
-def prepare(source: Path, destination: Path, plugin: Path, *, image_relative: str | None = None) -> dict:
+def prepare(source: Path, destination: Path, plugin: Path, *, image_relative: str | None = None,
+            features: list[str] | None = None) -> dict:
     source = source.resolve(strict=True)
     destination = destination.expanduser().absolute()
     # Do not replace an existing app, even a previous output. Every output is reviewable.
@@ -140,7 +141,7 @@ def prepare(source: Path, destination: Path, plugin: Path, *, image_relative: st
     if destination.is_relative_to(source) or source.is_relative_to(destination):
         raise CompatibilityError("Source and destination app trees must be separate.")
     plugin = plugin.resolve(strict=True)
-    plan = analyze(source, image_relative)
+    plan = analyze(source, image_relative, features=features)
     if plan["status"] != "structurally-compatible":
         raise CompatibilityError("No safe plan: " + "; ".join(plan["problems"]))
     original_info = confined_path(source, "Contents/Info.plist").read_bytes()
@@ -158,7 +159,7 @@ def prepare(source: Path, destination: Path, plugin: Path, *, image_relative: st
         staged = scratch / destination.name
         run("/usr/bin/ditto", str(source), str(staged))
         # Re-analyze the copy: an app update while copying must never reuse an old plan.
-        if analyze(staged, image_relative) != plan:
+        if analyze(staged, image_relative, features=plan["features"]) != plan:
             raise CompatibilityError("Source changed during preparation. Retry after its update completes.")
         info_path = confined_path(staged, "Contents/Info.plist")
         if info_path.read_bytes() != original_info:
@@ -197,6 +198,7 @@ def prepare(source: Path, destination: Path, plugin: Path, *, image_relative: st
         if rename(os.fsencode(staged), os.fsencode(destination), 0x00000004) != 0:
             raise OSError(ctypes.get_errno(), "Could not publish app without overwriting destination")
     return {"destination": str(destination), "version": plan["version"], "build": plan["build"],
+            "features": plan["features"],
             **identity.to_dict(), "data_isolation": "per-installation",
             "omitted_system_extensions": omitted_extensions,
             "status": "prepared-and-signature-verified", "live_test": "not performed"}

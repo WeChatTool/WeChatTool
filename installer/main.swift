@@ -92,6 +92,38 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     private let createButton = NSButton()
     private let openButton = NSButton()
     private let revealButton = NSButton()
+    private let recallCheckbox = NSButton(checkboxWithTitle: Copy.text("Recall protection", "防撤回"), target: nil, action: nil)
+    private let accessibilityCheckbox = NSButton(checkboxWithTitle: Copy.text("Accessibility support (experimental)", "辅助功能支持（实验性）"), target: nil, action: nil)
+
+    private var selectedFeatures: [String] {
+        var features: [String] = []
+        if recallCheckbox.state == .on { features.append("recall") }
+        if accessibilityCheckbox.state == .on { features.append("accessibility") }
+        return features
+    }
+
+    private func featureSummary(_ features: [String]) -> String {
+        features.map { feature in
+            feature == "recall" ? Copy.text("recall protection", "防撤回")
+                : Copy.text("experimental accessibility support", "实验性辅助功能支持")
+        }.joined(separator: Copy.text(" and ", "和"))
+    }
+
+    private func verificationAdvice(_ features: [String]) -> String {
+        var advice: [String] = []
+        if features.contains("recall") {
+            advice.append(Copy.text("After signing in, recall a new test message to verify it stays visible.", "登录后，请撤回一条新测试消息，确认它仍然可见。"))
+        }
+        if features.contains("accessibility") {
+            advice.append(Copy.text("Test your accessibility tool after launch. This does not prevent account-security logouts.", "启动后请测试辅助功能工具。此功能不会阻止账号安全退出登录。"))
+        }
+        return advice.joined(separator: " ")
+    }
+
+    private static func matchesFeatures(_ report: [String: Any], _ requested: [String]) -> Bool {
+        guard let reported = report["features"] as? [String] else { return false }
+        return reported.count == requested.count && Set(reported) == Set(requested)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         makeMenu()
@@ -156,8 +188,8 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         let title = NSTextField(labelWithString: Copy.text("Set up WeChatTool", "安装 WeChatTool"))
         title.font = .systemFont(ofSize: 26, weight: .semibold)
         let subtitle = NSTextField(wrappingLabelWithString: Copy.text(
-            "Create a separate copy of WeChat with message recall protection.",
-            "创建带有防撤回功能的微信副本。"))
+            "Choose the features for your separate copy of WeChat.",
+            "选择要为独立微信副本安装的功能。"))
         subtitle.font = .systemFont(ofSize: 14)
         subtitle.textColor = .secondaryLabelColor
 
@@ -177,9 +209,24 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         explanation.font = .systemFont(ofSize: 12)
         explanation.textColor = .secondaryLabelColor
 
+        let featureLabel = NSTextField(labelWithString: Copy.text("2. Choose one or both features", "2. 选择一项或两项功能"))
+        featureLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        recallCheckbox.state = .on
+        accessibilityCheckbox.state = .off
+        for checkbox in [recallCheckbox, accessibilityCheckbox] {
+            checkbox.target = self
+            checkbox.action = #selector(featuresChanged)
+        }
+        recallCheckbox.toolTip = Copy.text("Keep recalled messages visible in this copy.", "让撤回的消息在此副本中保持可见。")
+        let accessibilityExplanation = NSTextField(wrappingLabelWithString: Copy.text(
+            "Accessibility support keeps local UI automation available. It is experimental and does not prevent account-security logouts or replace macOS accessibility permission.",
+            "辅助功能支持用于保持本地界面自动化可用。此功能为实验性功能，不会阻止账号安全退出登录，也不能代替 macOS 辅助功能授权。"))
+        accessibilityExplanation.font = .systemFont(ofSize: 12)
+        accessibilityExplanation.textColor = .secondaryLabelColor
+
         let separator = NSBox()
         separator.boxType = .separator
-        let checkLabel = NSTextField(labelWithString: Copy.text("2. Check compatibility and create your copy", "2. 检查兼容性并创建副本"))
+        let checkLabel = NSTextField(labelWithString: Copy.text("3. Check compatibility and create your copy", "3. 检查兼容性并创建副本"))
         checkLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         statusTitle.font = .systemFont(ofSize: 14, weight: .medium)
         statusMessage.font = .systemFont(ofSize: 12)
@@ -223,6 +270,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         finishedActions.spacing = 8
 
         let stack = NSStackView(views: [title, subtitle, sourceLabel, sourceRow, explanation,
+                                      featureLabel, recallCheckbox, accessibilityCheckbox, accessibilityExplanation,
                                       separator, checkLabel, statusRow, statusMessage,
                                       detailsScroll, actions, finishedActions])
         stack.orientation = .vertical
@@ -230,6 +278,8 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         stack.spacing = 12
         stack.setCustomSpacing(20, after: subtitle)
         stack.setCustomSpacing(18, after: explanation)
+        stack.setCustomSpacing(6, after: recallCheckbox)
+        stack.setCustomSpacing(6, after: accessibilityCheckbox)
         stack.setCustomSpacing(18, after: separator)
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentStack = stack
@@ -239,7 +289,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 26)
         ])
-        for view in [subtitle, sourceRow, explanation, separator, statusMessage, detailsScroll] {
+        for view in [subtitle, sourceRow, explanation, accessibilityExplanation, separator, statusMessage, detailsScroll] {
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
     }
@@ -260,8 +310,10 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     private func updateControls() {
         chooseButton.isEnabled = !busy
-        checkButton.isEnabled = !busy && source != nil
-        createButton.isEnabled = !busy && compatible
+        recallCheckbox.isEnabled = !busy
+        accessibilityCheckbox.isEnabled = !busy
+        checkButton.isEnabled = !busy && source != nil && !selectedFeatures.isEmpty
+        createButton.isEnabled = !busy && compatible && !selectedFeatures.isEmpty
         openButton.isHidden = destination == nil || destinationBundleID == nil
         revealButton.isHidden = destination == nil
         openButton.isEnabled = !busy && destination != nil && destinationBundleID != nil
@@ -290,6 +342,24 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
         checkCompatibility()
     }
 
+    @objc private func featuresChanged() {
+        guard !busy else { return }
+        compatible = false
+        destination = nil
+        destinationBundleID = nil
+        if selectedFeatures.isEmpty {
+            setStatus(Copy.text("Select at least one feature", "请至少选择一项功能"),
+                      Copy.text("Choose recall protection, accessibility support, or both before creating a copy.", "创建副本前，请选择防撤回、辅助功能支持，或同时选择两项。"))
+            updateControls()
+        } else if source != nil {
+            checkCompatibility()
+        } else {
+            setStatus(Copy.text("Choose your WeChat app", "请选择微信应用"),
+                      Copy.text("Select the official WeChat application to check the selected features.", "请选择官方微信应用，以检查所选功能的兼容性。"))
+            updateControls()
+        }
+    }
+
     @objc private func chooseSource() {
         guard !busy else { return }
         let panel = NSOpenPanel()
@@ -308,25 +378,31 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     @objc private func checkCompatibility() {
         guard !busy, let source else { return }
+        let features = selectedFeatures
+        guard !features.isEmpty else {
+            featuresChanged()
+            return
+        }
         compatible = false
         busy = true
         setStatus(Copy.text("Checking compatibility…", "正在检查兼容性…"),
-                  Copy.text("Reading the application. This does not change WeChat or your chats.", "正在读取应用，此操作不会更改微信或聊天数据。"))
+                  Copy.text("Checking \(featureSummary(features)). This does not change WeChat or your chats.", "正在检查\(featureSummary(features))。此操作不会更改微信或聊天数据。"))
         updateControls()
-        Backend.run(["analyze", "--app", source.path, "--json"]) { [weak self] result in
+        Backend.run(["analyze", "--app", source.path, "--json", "--features"] + features) { [weak self] result in
             guard let self else { return }
             self.busy = false
             switch result {
             case .success(let response):
                 if response.exitCode == 0, let report = response.json,
                    report["status"] as? String == "structurally-compatible",
+                   Self.matchesFeatures(report, features),
                    let version = report["version"] as? String, let build = report["build"] as? String {
                     self.compatible = true
                     self.setStatus(Copy.text("WeChat \(version) (\(build)) passed the check", "微信 \(version)（\(build)）已通过检查"),
-                                   Copy.text("You can create an independent copy with recall protection. After signing in, recall a new test message to verify it stays visible.", "可以创建带有防撤回功能的独立副本。登录后，请撤回一条新测试消息，确认它仍然可见。"))
+                                   Copy.text("Ready to create a copy with \(self.featureSummary(features)). ", "可以创建包含\(self.featureSummary(features))的副本。") + self.verificationAdvice(features))
                 } else {
                     self.setStatus(Copy.text("This WeChat app could not pass the check", "此微信应用未通过检查"),
-                                   Copy.text("Choose a clean official installation. If this version is unsupported, continue using the original app.", "请选择未经修改的官方微信。如果此版本不受支持，请继续使用原应用。"), detail: response.details)
+                                   Copy.text("The selected features could not be verified. Choose a clean official installation or change your feature selection.", "无法验证所选功能的兼容性。请选择未经修改的官方微信，或更改所选功能。"), detail: response.details)
                 }
             case .failure(let error):
                 self.showBackendError(error)
@@ -336,7 +412,7 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     @objc private func createCopy() {
-        guard !busy, compatible, let source, window.attachedSheet == nil else { return }
+        guard !busy, compatible, !selectedFeatures.isEmpty, let source, window.attachedSheet == nil else { return }
         let panel = NSSavePanel()
         panel.title = Copy.text("Save your WeChat copy", "保存微信副本")
         panel.prompt = Copy.text("Create Copy", "创建副本")
@@ -365,32 +441,35 @@ private final class Installer: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     private func prepare(source: URL, output: URL) {
+        let features = selectedFeatures
+        guard compatible, !features.isEmpty else { return }
         busy = true
         destination = nil
         destinationBundleID = nil
         setStatus(Copy.text("Creating your WeChat copy…", "正在创建微信副本…"),
-                  Copy.text("Preparing a separate installation and checking its signature. This may take a few minutes. You can keep using your other WeChat installations.", "正在准备独立安装并检查签名，可能需要几分钟。你可以继续使用其他微信应用。"))
+                  Copy.text("Installing \(featureSummary(features)) and checking the copy’s signature. This may take a few minutes.", "正在安装\(featureSummary(features))并检查副本签名，可能需要几分钟。"))
         updateControls()
-        Backend.run(["prepare", "--app", source.path, "--output", output.path, "--plugin", Backend.plugin.path]) { [weak self] result in
+        Backend.run(["prepare", "--app", source.path, "--output", output.path, "--plugin", Backend.plugin.path, "--features"] + features) { [weak self] result in
             guard let self else { return }
             self.busy = false
             switch result {
             case .success(let response):
                 if response.exitCode == 0, let report = response.json,
                    report["status"] as? String == "prepared-and-signature-verified",
+                   Self.matchesFeatures(report, features),
                    let path = report["destination"] as? String,
                    URL(fileURLWithPath: path).resolvingSymlinksInPath() == output.resolvingSymlinksInPath(),
                    let bundleID = Self.isolatedBundleID(in: report) {
                     self.destination = URL(fileURLWithPath: path)
                     self.destinationBundleID = bundleID
                     self.setStatus(Copy.text("Your WeChat copy is ready", "微信副本已准备好"),
-                                   Copy.text("Open this copy and sign in to the account you want to use here. Its chats and settings start separately; your original history is not imported. Create another copy for another account.", "打开此副本，登录要在这里使用的账号。聊天记录和设置独立保存，不会自动导入原有记录。需要使用其他账号时，请再创建一个副本。"))
+                                   Copy.text("Installed \(self.featureSummary(features)). Open this copy and sign in separately. ", "已安装\(self.featureSummary(features))。打开此副本后请单独登录。") + self.verificationAdvice(features))
                     self.sourceField.toolTip = source.path
                     self.revealButton.toolTip = output.path
                     self.openButton.toolTip = output.path
                 } else if response.exitCode == 0 {
                     self.setStatus(Copy.text("Could not verify the new installation", "无法验证新安装"),
-                                   Copy.text("The installer could not confirm this copy’s separate data storage. Check the details below and create a fresh copy.", "安装器无法确认此副本的数据是否独立保存。请查看以下详情，并重新创建副本。"), detail: response.details)
+                                   Copy.text("The installer could not confirm this copy’s selected features or separate data storage. Check the details below and create a fresh copy.", "安装器无法确认此副本的所选功能或独立数据存储。请查看以下详情，并重新创建副本。"), detail: response.details)
                 } else {
                     self.setStatus(Copy.text("Could not create the copy", "无法创建副本"),
                                    Copy.text("The original app was not changed. Check the details below, then try again with a new destination.", "原应用未被更改。请查看以下详情，然后选择新的保存位置重试。"), detail: response.details)

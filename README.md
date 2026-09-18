@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/WeChatTool/WeChatTool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/WeChatTool/WeChatTool/actions/workflows/ci.yml)
 
-Keep recalled WeChat messages on your Mac. WeChatTool adds local anti-recall protection with a simple graphical installer. No command line or compiling required.
+Keep recalled WeChat messages on your Mac. WeChatTool offers recall protection and optional, experimental accessibility support through a graphical installer. Choose either feature or both for each app copy.
 
 Use different WeChat accounts side by side, with **one account per installation**. Each copy has separate chats, login, and settings. Your original app remains unchanged.
 
@@ -13,6 +13,8 @@ Independent installations require installer **v0.1.1 or later**.
 ## Install with the Mac app
 
 **[Download WeChatTool-Installer v0.1.1](https://github.com/WeChatTool/WeChatTool/releases/download/v0.1.1/WeChatTool-Installer-0.1.1-universal2.zip)** · [Release notes and checksum](https://github.com/WeChatTool/WeChatTool/releases/tag/v0.1.1)
+
+Feature selection and experimental accessibility support are available in the current source. The v0.1.1 download above provides recall protection only; build the current installer to use the new options.
 
 One Universal ZIP supports **Apple Silicon and Intel Macs running macOS 14 or later**. The installer includes everything it needs; you do not need Python, Xcode, or developer tools. The **Source code** archives contain code only, not the installer app.
 
@@ -28,11 +30,16 @@ Double-click the downloaded ZIP to extract it, then open **WeChatTool-Installer.
 
 This release is **ad-hoc signed and not notarized by Apple**. If macOS blocks it and you trust the download, open **System Settings → Privacy & Security → Open Anyway** after attempting to launch it. See [Apple’s instructions for opening an app from an unidentified developer](https://support.apple.com/en-sg/guide/mac-help/mh40616/mac).
 
-### 2. Select WeChat and check compatibility
+### 2. Select WeChat, features, and check compatibility
 
 The installer selects `/Applications/WeChat.app` by default. Use **Browse** if your official app is somewhere else. Always select an unmodified official installation, not a previously prepared copy.
 
-Click **Check Compatibility**. This only reads the application; it does not modify WeChat or your chats. If the installation is unsupported, continue using the original app.
+Choose at least one feature:
+
+- **Recall protection** is selected by default and keeps recalled messages visible locally.
+- **Accessibility support (experimental)** is off by default. It keeps local accessibility interfaces and actions available to UI automation tools. It does not prevent account-security logouts or replace macOS accessibility permission.
+
+Changing the selection automatically checks compatibility again. You can also click **Check Compatibility**. The check only reads the application; it does not modify WeChat or your chats. If a selected feature is unsupported, change the selection or continue using the original app.
 
 ### 3. Create your app copy
 
@@ -46,7 +53,7 @@ Choose a new name if that app already exists. The installer does not overwrite a
 
 After preparation succeeds, choose **Open WeChat**, or **Show in Finder** to locate your copy. Sign in to the account you want to use in this installation. If this copy is already running, **Open WeChat** brings its window forward.
 
-For a first test, have another account send a new text message, then recall it. Check that the original message remains visible, including after reopening the conversation. Also verify normal messaging and that this installation’s new chats remain available after reopening it.
+If you selected recall protection, have another account send a new text message, then recall it. Check that the original message remains visible, including after reopening the conversation. If you selected accessibility support, test your accessibility tool after launch; live behavior has not yet been verified. Also verify normal messaging and that this installation’s new chats remain available after reopening it.
 
 Use this copied app whenever you want the plugin enabled. Opening the original **WeChat.app** in Applications runs the official installation.
 
@@ -65,7 +72,9 @@ Opening a copy that is already running brings its existing window forward.
 
 ## Compatibility
 
-WeChat **4.1.15 (build 270099)** has passed the compatibility check for Apple Silicon and Intel. Native tests have run on Apple Silicon and for the Intel build through Rosetta. This is not a guarantee that every WeChat feature, message type, or future release will work.
+Recall protection for WeChat **4.1.15 (build 270099)** has passed the compatibility check for Apple Silicon and Intel. Native tests have run on Apple Silicon and for the Intel build through Rosetta. This is not a guarantee that every WeChat feature, message type, or future release will work.
+
+Experimental accessibility support is restricted to verified Apple Silicon and Intel binary profiles for **4.1.15 / 270099**. The installer checks the selected features against every architecture in the app and rejects unsupported combinations. Static compatibility does not establish that automation works in a live session, and this option does not disable server-side account restrictions or the “For account security, log in again” warning.
 
 Independent storage has passed synthetic sandbox tests on both processors, and real WeChat copies have passed preparation and signature checks. **Simultaneous sign-in to real accounts has not yet been tested.**
 
@@ -95,7 +104,8 @@ Do not delete WeChat’s chat-data folders or containers.
 | A new copy does not show my original chats | This is expected: each installation has independent data. Open the app where those chats were created to access them. |
 | A second copy opens the same account or data | Create it separately with the installer. Finder duplicates retain the first copy’s identity. |
 | The copied app will not launch or sign in | Use the original app while investigating. Do not delete databases or reset account data to troubleshoot. |
-| Messages are still recalled | Confirm that you opened the prepared copy. Optional runtime diagnostics are below. |
+| Messages are still recalled | Confirm that recall protection was selected and that you opened the prepared copy. Optional runtime diagnostics are below. |
+| Accessibility support is selected but automation fails | Check the automation tool’s macOS accessibility permission. The feature is experimental and does not restore an expired or rejected login session. |
 | The plugin stopped working after an update | Check the updated official app and prepare a new copy. |
 
 When reporting a problem, include your macOS version, processor, WeChat version/build, and the compatibility result or error shown by the installer. Remove personal paths and identifiers before sharing diagnostic output.
@@ -138,6 +148,17 @@ Build the plugin and prepare an independent copy:
 make build
 python3 -m wechattool prepare --output "$HOME/Applications/WeChatTool-WeChat.app"
 ```
+
+The command line defaults to recall protection. Use the same `--features` selection for analysis and preparation. Choose `recall`, `accessibility`, or both:
+
+```sh
+python3 -m wechattool analyze --features recall accessibility
+python3 -m wechattool prepare \
+  --features recall accessibility \
+  --output "$HOME/Applications/WeChatTool-WeChat.app"
+```
+
+For accessibility support without recall protection, pass `--features accessibility` to both commands. Changing an existing copy’s features requires creating a new copy.
 
 Success is reported as `prepared-and-signature-verified`. Each `prepare` command creates an independent installation. The destination must be a new path ending in `.app`; existing files and folders are never overwritten. Preparation does not launch WeChat or copy chat data.
 
@@ -198,7 +219,7 @@ This disables the plugin for that launch only. The installation keeps its separa
 
 ## Limits and privacy
 
-- The effect is local to this Mac. It does not change what other participants or devices see.
+- Recall protection affects this Mac only. It does not change what other participants or devices see.
 - Your own recalls and recalls from your other devices may also remain visible locally.
 - The plugin cannot recover messages that were already removed, or media that was never downloaded or is no longer available.
 - Some message types or WeChat features may behave differently. Compatibility with future releases is not guaranteed.

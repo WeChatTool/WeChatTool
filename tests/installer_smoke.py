@@ -170,16 +170,31 @@ def main() -> None:
         report = json.loads(standalone("analyze", "--app", source, "--json").stdout)
         require(report["status"] == "structurally-compatible", f"Unexpected analysis: {report}")
         require(report["architectures"] == [args.arch], f"Unexpected architectures: {report}")
+        require(report["features"] == ["recall"], "Default feature selection changed")
         require(len(report["hooks"]) == 1, f"Expected one synthetic predicate: {report}")
         require(report["hooks"][0]["image"] == "Contents/Resources/wechat.dylib", "Wrong core image")
         require(snapshot(source) == original, "Read-only analysis modified the source app")
         passed("frozen backend analyzes from unrelated cwd with sanitized environment")
+
+        for features in (("accessibility",), ("recall", "accessibility")):
+            unsupported = json.loads(standalone(
+                "analyze", "--app", source, "--json", "--features", *features, expected=2).stdout)
+            require(unsupported["features"] == list(features), "Frozen backend lost feature selection")
+            require(unsupported["status"] == "unsupported" and not unsupported["hooks"],
+                    "Unknown accessibility build must refuse every selected hook")
+        rejected = workspace / "Unsupported Accessibility.app"
+        standalone("prepare", "--app", source, "--output", rejected, "--plugin", plugin,
+                   "--features", "accessibility", expected=1)
+        require(not rejected.exists() and snapshot(source) == original,
+                "Unsupported feature preparation wrote an app or changed the source")
+        passed("frozen backend preserves choices and refuses unsupported accessibility before writes")
 
         prepared = workspace / "Prepared Synthetic WeChat.app"
         result = json.loads(standalone(
             "prepare", "--app", source, "--output", prepared, "--plugin", plugin,
         ).stdout)
         require(result["status"] == "prepared-and-signature-verified", f"Unexpected prepare result: {result}")
+        require(result["features"] == ["recall"], "Prepared result must confirm the installed features")
         require(Path(result["destination"]) == prepared, "Backend published the wrong destination")
         installed_plugin = prepared / "Contents/Resources/WeChatTool/WeChatTool.dylib"
         require(installed_plugin.is_file(), "Plugin was not installed in the copied fixture")

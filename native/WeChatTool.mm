@@ -5,12 +5,14 @@
 #import <objc/runtime.h>
 #import "RecallRuntime.h"
 #include "NoticeProfiles.inc"
+#include "AccessibilityProfiles.inc"
 #include <libkern/OSCacheControl.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <os/log.h>
 #include <pthread.h>
 #include <uuid/uuid.h>
@@ -138,9 +140,9 @@ static bool RelativeImagePath(id path) {
     return [path rangeOfString:@"\0"].location == NSNotFound;
 }
 
-// These are the only instruction replacements implemented by this release.
-// A plan selects locations; it cannot supply arbitrary machine code.
-static bool AllowedHook(NSDictionary *hook) {
+// Recall plans can select locations only for these reviewed recipes; they
+// cannot supply arbitrary machine code. Accessibility uses its compiled registry.
+static bool AllowedRecallHook(NSDictionary *hook) {
     if (![hook isKindOfClass:NSDictionary.class] || !String(hook[@"id"], 128) ||
         !RelativeImagePath(hook[@"image"]) || !String(hook[@"uuid"], 36) ||
         !String(hook[@"arch"], 16) || !String(hook[@"expected"], 128) ||
@@ -216,6 +218,92 @@ static NSData *Hex(NSString *hex) {
                    (low <= '9' ? low - '0' : low - 'a' + 10);
     }
     return data;
+}
+
+// The plan can select a reviewed accessibility patch, never invent one. These
+// profiles are embedded in the plugin and bind the entire function and image.
+static NSDictionary *FindAccessibilityProfile(NSDictionary *hook, NSArray *profiles) {
+    if (![hook isKindOfClass:NSDictionary.class] || ![profiles isKindOfClass:NSArray.class]) return nil;
+    NSBundle *bundle = NSBundle.mainBundle;
+    NSDictionary *selected = nil;
+    for (NSDictionary *profile in profiles) {
+        if (![profile isKindOfClass:NSDictionary.class] ||
+            ![profile[@"version"] isEqual:[bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]] ||
+            ![profile[@"build"] isEqual:[bundle objectForInfoDictionaryKey:@"CFBundleVersion"]]) continue;
+        bool matches = true;
+        for (NSString *key in @[@"id", @"arch", @"uuid", @"image_sha256", @"address", @"expected",
+                                 @"patch_offset", @"replacement", @"function_size", @"function_sha256"])
+            if (![profile[key] isEqual:hook[key]]) { matches = false; break; }
+        if (matches) {
+            if (selected) return nil;
+            selected = profile;
+        }
+    }
+    return selected;
+}
+
+static NSDictionary *AccessibilityProfile(NSDictionary *hook) {
+    static NSArray *profiles;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSData *data = [NSData dataWithBytes:kCompiledAccessibilityProfiles
+                                    length:sizeof(kCompiledAccessibilityProfiles) - 1];
+        id document = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if ([document isKindOfClass:NSDictionary.class] &&
+            [document[@"profiles"] isKindOfClass:NSArray.class]) profiles = document[@"profiles"];
+    });
+    return FindAccessibilityProfile(hook, profiles);
+}
+
+static bool AccessibilityHook(NSDictionary *hook) {
+    return [hook[@"feature"] isEqual:@"accessibility"];
+}
+
+static bool AllowedHook(NSDictionary *hook) {
+    if (![hook isKindOfClass:NSDictionary.class]) return false;
+    if (!AccessibilityHook(hook))
+        return (!hook[@"feature"] || [hook[@"feature"] isEqual:@"recall"]) && AllowedRecallHook(hook);
+    uint64_t address, offset, size;
+    if (!RelativeImagePath(hook[@"image"]) || hook[@"notice_adapter"] ||
+        !Integer(hook[@"address"], &address) || !address || address > UINTPTR_MAX ||
+        !Integer(hook[@"patch_offset"], &offset) ||
+        !Integer(hook[@"function_size"], &size) || !size || size > 65536 ||
+        address > UINTPTR_MAX - size || !HexString(hook[@"function_sha256"], 64) ||
+        !HexString(hook[@"image_sha256"], 64) ||
+        !String(hook[@"expected"], 4096) || !String(hook[@"replacement"], 32)) return false;
+    NSData *expected = Hex(hook[@"expected"]), *replacement = Hex(hook[@"replacement"]);
+    return expected.length && replacement.length && expected.length <= size &&
+        offset <= expected.length && replacement.length <= expected.length - offset &&
+        AccessibilityProfile(hook) != nil;
+}
+
+static bool SelectedFeaturesMatch(NSDictionary *plan, NSArray *hooks) {
+    id value = plan[@"features"];
+    // Existing plans remain recall-only; adding an accessibility hook requires
+    // an explicit feature selection from the new installer/backend.
+    NSArray *features = value ?: @[@"recall"];
+    if (![features isKindOfClass:NSArray.class] || features.count == 0 || features.count > 2) return false;
+    NSMutableSet *selected = [NSMutableSet set];
+    for (id feature in features) {
+        if ((![@"recall" isEqual:feature] && ![@"accessibility" isEqual:feature]) ||
+            [selected containsObject:feature]) return false;
+        [selected addObject:feature];
+    }
+    NSMutableDictionary<NSString *, NSMutableDictionary *> *counts = [NSMutableDictionary dictionary];
+    for (NSDictionary *hook in hooks) {
+        NSString *feature = hook[@"feature"] ?: @"recall";
+        if (![selected containsObject:feature]) return false;
+        NSString *arch = hook[@"arch"];
+        if (!counts[arch]) counts[arch] = [NSMutableDictionary dictionary];
+        counts[arch][feature] = @([counts[arch][feature] unsignedIntegerValue] + 1);
+    }
+    for (NSDictionary *count in counts.allValues) {
+        for (NSString *feature in selected) {
+            NSUInteger wanted = [feature isEqual:@"accessibility"] ? 2 : 1;
+            if ([count[feature] unsignedIntegerValue] != wanted) return false;
+        }
+    }
+    return counts.count > 0;
 }
 
 static bool Inside(uint64_t address, uint64_t length, uint64_t start, uint64_t size) {
@@ -493,6 +581,52 @@ static NSString *TryNoticeHook(const mach_header *header, intptr_t slide, NSDict
                  [NSData dataWithBytes:jump length:sizeof(jump)]);
 }
 
+static NSData *ImageDigest(NSString *path) {
+    // Avoid initializing stream classes (which may load another image) while
+    // inside the dyld callback and holding the runtime mutex.
+    const int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (descriptor < 0) return nil;
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    uint8_t buffer[32768];
+    ssize_t length;
+    while (true) {
+        length = read(descriptor, buffer, sizeof(buffer));
+        if (length < 0 && errno == EINTR) continue;
+        if (length <= 0) break;
+        CC_SHA256_Update(&context, buffer, static_cast<CC_LONG>(length));
+    }
+    close(descriptor);
+    if (length < 0) return nil;
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(digest, &context);
+    return [NSData dataWithBytes:digest length:sizeof(digest)];
+}
+
+static bool AccessibilityGroupMatches(const mach_header *header, intptr_t slide,
+                                      NSString *actual, NSDictionary *first, NSArray *hooks) {
+    if (![ImageDigest(actual) isEqual:Hex(first[@"image_sha256"])]) return false;
+    NSUInteger count = 0;
+    // Preflight both functions before changing either. One stale or altered
+    // function refuses the whole accessibility feature for this image.
+    for (NSDictionary *hook in hooks) {
+        if (!AccessibilityHook(hook) || ![hook[@"arch"] isEqual:kArchitecture] ||
+            ![hook[@"image"] isEqual:first[@"image"]]) continue;
+        NSDictionary *profile = AccessibilityProfile(hook);
+        uintptr_t address;
+        const NSUInteger size = [profile[@"function_size"] unsignedIntegerValue];
+        if (!profile || ![hook[@"image_sha256"] isEqual:first[@"image_sha256"]] ||
+            !ValidateImage(header, hook, size) || !Slid([hook[@"address"] unsignedLongLongValue], slide, &address))
+            return false;
+        unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+        CC_SHA256(reinterpret_cast<const void *>(address), static_cast<CC_LONG>(size), digest);
+        if (![[NSData dataWithBytes:digest length:sizeof(digest)] isEqual:Hex(profile[@"function_sha256"])])
+            return false;
+        count++;
+    }
+    return count == 2;
+}
+
 static void ImageAdded(const mach_header *header, intptr_t slide) {
     @autoreleasepool {
         Runtime *runtime = gRuntime;
@@ -502,6 +636,7 @@ static void ImageAdded(const mach_header *header, intptr_t slide) {
         NSString *actual = Canonical(@(information.dli_fname));
         if (!actual) return;
         pthread_mutex_lock(&runtime->mutex);
+        bool accessibilityChecked = false, accessibilityMatches = false;
         for (NSDictionary *hook in runtime->hooks) {
             if (![hook[@"arch"] isEqualToString:kArchitecture]) continue;
             NSString *key = [NSString stringWithFormat:@"%@:%@:%@", hook[@"arch"],
@@ -517,6 +652,16 @@ static void ImageAdded(const mach_header *header, intptr_t slide) {
                 // page. Only patch fresh dyld images before their initializers.
                 Log(runtime->log, @"late-image-refused", hook[@"id"]);
                 continue;
+            }
+            if (AccessibilityHook(hook)) {
+                if (!accessibilityChecked) {
+                    accessibilityMatches = AccessibilityGroupMatches(header, slide, actual, hook, runtime->hooks);
+                    accessibilityChecked = true;
+                }
+                if (!accessibilityMatches) {
+                    Log(runtime->log, @"accessibility-profile-mismatch", hook[@"id"]);
+                    continue;
+                }
             }
             NSData *expected = Hex(hook[@"expected"]);
             if (!ValidateImage(header, hook, expected.length)) {
@@ -534,7 +679,7 @@ static void ImageAdded(const mach_header *header, intptr_t slide) {
             if (active)
                 runtime->applied++;
             Log(runtime->log, status, hook[@"id"]);
-            if (active) {
+            if (active && !AccessibilityHook(hook)) {
                 NSString *noticeStatus = TryNoticeHook(header, slide, hook);
                 if ([noticeStatus isEqualToString:@"active"] || [noticeStatus isEqualToString:@"already-active"])
                     Log(runtime->log, @"recall-notices-active", hook[@"id"]);
@@ -611,6 +756,10 @@ __attribute__((constructor)) static void Start() {
             }
             [keys addObject:key];
             if ([hook[@"arch"] isEqualToString:kArchitecture]) relevant = true;
+        }
+        if (!SelectedFeaturesMatch(plan, hooks)) {
+            Log(logger, @"feature-selection-mismatch", @"-");
+            return;
         }
         if (!relevant) {
             Log(logger, @"no-hook-for-architecture", @"-");

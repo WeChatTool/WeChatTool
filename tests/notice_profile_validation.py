@@ -184,6 +184,8 @@ def main() -> None:
             "CFBundlePackageType": "APPL"}))
         (directory / "NoticeProfiles.inc").write_text(
             'static const char kCompiledNoticeProfiles[] = "{\\"schema_version\\":1,\\"adapters\\":[]}";\n')
+        (directory / "AccessibilityProfiles.inc").write_text(
+            'static const char kCompiledAccessibilityProfiles[] = "{\\"schema_version\\":1,\\"profiles\\":[]}";\n')
         harness = directory / "validation.mm"
         harness.write_text(HARNESS)
         run("/usr/bin/xcrun", "clang++", "-arch", args.arch, "-mmacosx-version-min=11.0",

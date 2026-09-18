@@ -102,6 +102,8 @@ def main() -> None:
             destination = directory / f"WeChatTool-{len(plugin_cache)}.dylib"
             (directory / "NoticeProfiles.inc").write_text(
                 "static const char kCompiledNoticeProfiles[] = " + json.dumps(encoded) + ";\n", encoding="utf-8")
+            (directory / "AccessibilityProfiles.inc").write_text(
+                'static const char kCompiledAccessibilityProfiles[] = "{\\"schema_version\\":1,\\"profiles\\":[]}";\n')
             run(*compiler, "-dynamiclib", "-fvisibility=hidden", "-I", directory,
                 "-Wl,-install_name,@rpath/WeChatTool.dylib", ROOT / "native/WeChatTool.mm",
                 ROOT / "native/RecallNotice.mm", ROOT / "native/RecallRuntime.mm", "-o", destination)
